@@ -35,15 +35,22 @@ def windows_launcher_command(python_exe: str, python_args: list[str], runtime_py
     return "& " + " ".join(parts)
 
 
+def _toml_safe_windows(value: str) -> str:
+    """Turn Windows separators into forward slashes.
+
+    Agent profiles store instructions in TOML basic strings. A raw
+    backslash is an escape, so ``C:\\Users`` and ``C:\\Program Files`` do
+    not parse. Forward slashes are valid TOML and a working Windows path
+    for PowerShell and the Windows file APIs.
+    """
+    return value.replace("\\", "/")
+
+
 def rewrite_text(text: str, *, skills_prefix: str, launcher: str | None) -> str:
     """Replace plugin-root tokens. ``launcher`` None keeps the Unix shell launcher."""
     updated = text.replace(SKILLS_TOKEN, skills_prefix)
     if launcher:
         updated = updated.replace(LAUNCHER_TOKEN, launcher)
-    else:
-        # install.sh performs the Unix launcher substitution itself. This
-        # branch exists so a caller can rewrite skill paths alone.
-        pass
     return updated
 
 
@@ -73,8 +80,16 @@ def rewrite_tree(
             if _write_if_changed(path, updated):
                 changed += 1
     if agent_dir is not None and agent_dir.is_dir():
+        # TOML basic strings treat backslash as an escape. Inserted Windows
+        # paths use forward slashes so every rewritten agent still parses.
+        toml_prefix = _toml_safe_windows(skills_prefix)
+        toml_launcher = _toml_safe_windows(launcher) if launcher else None
         for path in agent_dir.glob("seo-*.toml"):
-            updated = rewrite_text(path.read_text(encoding="utf-8"), skills_prefix=skills_prefix, launcher=launcher)
+            updated = rewrite_text(
+                path.read_text(encoding="utf-8"),
+                skills_prefix=toml_prefix,
+                launcher=toml_launcher,
+            )
             if _write_if_changed(path, updated):
                 changed += 1
     return changed
