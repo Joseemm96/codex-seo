@@ -13,6 +13,7 @@ import argparse
 import importlib
 import json
 import sys
+from contextlib import redirect_stdout
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -85,7 +86,8 @@ def normalize_url(target: str) -> str:
 def check_dependency(module_name: str, package_name: str) -> dict[str, Any]:
     """Check whether a dependency can be imported."""
     try:
-        module = importlib.import_module(module_name)
+        with redirect_stdout(sys.stderr):
+            module = importlib.import_module(module_name)
         version = getattr(module, "__version__", None)
         return {"package": package_name, "module": module_name, "ok": True, "version": version}
     except Exception as exc:  # noqa: BLE001

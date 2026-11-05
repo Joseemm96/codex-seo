@@ -49,9 +49,13 @@ try:
 except Exception:
     sys.exit(0)
 
-notes = payload.get("verification", {}).get("notes", [])
+notes = (payload.get("verification") or {}).get("notes") or []
 for note in notes[:5]:
     print(f"[ERROR] {note}")
+
+for key in ("error", "runtime_state_error"):
+    if payload.get(key):
+        print(f"[ERROR] {payload[key]}")
 
 for step in payload.get("steps", []):
     if step.get("required") and not step.get("ok"):
