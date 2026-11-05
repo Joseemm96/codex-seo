@@ -1,6 +1,6 @@
 # Codex SEO: Universal SEO Analysis Skill
 
-Codex SEO is a Codex-first SEO analysis skill suite with 28 sub-skills, 25 TOML sub-agents, and 81 Python execution scripts. It is synced from [AgriciDaniel/claude-seo](https://github.com/AgriciDaniel/claude-seo) v2.5.0 (commit `219ff485bb016314bb4c15bfc7978df61c668a4f`) and adapted for Codex. The canonical repository is [Joseemm96/codex-seo](https://github.com/Joseemm96/codex-seo).
+Codex SEO is a Codex-first SEO analysis skill suite with 28 sub-skills, 25 TOML sub-agents, and 83 Python execution scripts. It is synced from [AgriciDaniel/claude-seo](https://github.com/AgriciDaniel/claude-seo) v2.5.0 (commit `219ff485bb016314bb4c15bfc7978df61c668a4f`) and adapted for Codex. The canonical repository is [Joseemm96/codex-seo](https://github.com/Joseemm96/codex-seo).
 
 The canonical skill tree lives under `skills/`. The main orchestrator is `skills/seo/SKILL.md`.
 

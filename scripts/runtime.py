@@ -154,6 +154,40 @@ def _state_path(data_dir: Path) -> Path:
     return data_dir / "runtime-state.json"
 
 
+def write_runtime_state(data_dir: Path, state: dict[str, Any]) -> None:
+    """Atomically write the launcher readiness file shared with ``/seo setup``."""
+    data_dir.mkdir(parents=True, exist_ok=True)
+    temp_state = data_dir / ".runtime-state.next"
+    temp_state.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    try:
+        temp_state.replace(_state_path(data_dir))
+    except BaseException:
+        temp_state.unlink(missing_ok=True)
+        raise
+
+
+def record_managed_venv_readiness(venv_dir: Path, *, browser_ready: bool) -> str:
+    """Write ``runtime-state.json`` when ``venv_dir`` is the launcher's managed venv.
+
+    Returns ``written`` or ``skipped``. A skipped custom venv is left alone so
+    a disposable bootstrap cannot mark the real launcher ready. The written
+    document uses the same schema, requirements hash, and Python version that
+    ``setup`` checks.
+    """
+    root = _root()
+    data_dir, _mode = _data_dir(root)
+    managed = (data_dir / ".venv").resolve()
+    actual = Path(venv_dir).expanduser().resolve()
+    if actual != managed:
+        return "skipped"
+    if not _python_supported():
+        raise RuntimeError(_python_range_message())
+    state = dict(_expected(root))
+    state["browser_ready"] = bool(browser_ready)
+    write_runtime_state(data_dir, state)
+    return "written"
+
+
 def _load_state(data_dir: Path) -> dict[str, Any]:
     try:
         value = json.loads(_state_path(data_dir).read_text(encoding="utf-8"))
@@ -366,8 +400,7 @@ def command_setup(args: argparse.Namespace) -> int:
             swapped = True
             state = dict(status["expected"])
             state["browser_ready"] = browser_ready
-            temp_state.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-            temp_state.replace(_state_path(data_dir))
+            write_runtime_state(data_dir, state)
             committed = True
             shutil.rmtree(backup, ignore_errors=True)
     except (OSError, RuntimeError) as exc:

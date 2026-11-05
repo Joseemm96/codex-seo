@@ -12,6 +12,7 @@ import argparse
 import json
 import os
 import sys
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -44,31 +45,32 @@ from verify_environment import verify_environment
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def codex_settings_path() -> Path:
-    """Return the user-level Codex settings path."""
-    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "settings.json"
+def codex_config_path() -> Path:
+    """Return the Codex config.toml path extension installers write."""
+    return Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
 
 
 def configured_mcp_server(name: str, required_env: list[str] | None = None) -> dict[str, Any]:
-    """Return sanitized MCP server configuration status from Codex settings."""
-    settings_path = codex_settings_path()
+    """Return sanitized MCP status from Codex config.toml mcp_servers tables."""
+    config_path = codex_config_path()
     try:
-        settings = json.loads(settings_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {"configured": False, "settings_path": str(settings_path), "missing_env": required_env or []}
+        settings = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, tomllib.TOMLDecodeError, OSError):
+        return {"configured": False, "config_path": str(config_path), "missing_env": required_env or []}
 
-    server = settings.get("mcpServers", {}).get(name)
+    servers = settings.get("mcp_servers") if isinstance(settings.get("mcp_servers"), dict) else {}
+    server = servers.get(name)
     if not isinstance(server, dict):
-        return {"configured": False, "settings_path": str(settings_path), "missing_env": required_env or []}
+        return {"configured": False, "config_path": str(config_path), "missing_env": required_env or []}
 
     env = server.get("env", {}) if isinstance(server.get("env"), dict) else {}
     missing_env = [key for key in (required_env or []) if not env.get(key)]
     return {
         "configured": not missing_env,
-        "settings_path": str(settings_path),
+        "config_path": str(config_path),
         "command": server.get("command"),
         "args": server.get("args", []),
-        "env_keys": sorted(env),
+        "env_keys": sorted(str(key) for key in env),
         "missing_env": missing_env,
     }
 
@@ -357,9 +359,9 @@ def run_specialist(skill: str, target: str, output_root: Path | None = None) -> 
             recommendations = ["Install/configure the related extension or MCP server before requesting live data."]
         summary = [setup[skill]]
         if mcp_status["configured"]:
-            summary.append(f"Codex settings include `{server_name}` with required environment keys present.")
+            summary.append(f"Codex config.toml includes `{server_name}` with required environment keys present.")
         else:
-            summary.append(f"Codex settings do not include a complete `{server_name}` MCP configuration.")
+            summary.append(f"Codex config.toml does not include a complete `{server_name}` MCP configuration.")
         return run_capability_summary(
             skill,
             target,

@@ -13,8 +13,9 @@ Setup
 2. Place the key in a file named ``<key>.txt`` at the root of your
    site, served at ``https://example.com/<key>.txt``; the file body
    is the key itself. IndexNow crawls this once to prove host ownership.
-3. Pass the key + the key-location URL to this script (or set the
-   ``INDEXNOW_KEY`` and ``INDEXNOW_KEY_LOCATION`` env vars).
+3. Pass the key + the key-location URL to this script, set the
+   ``INDEXNOW_KEY`` and ``INDEXNOW_KEY_LOCATION`` env vars, or install the
+   Bing extension, which writes ``~/.config/codex-seo/indexnow.json``.
 
 Usage
 =====
@@ -54,6 +55,69 @@ from url_safety import URLSafetyError, safe_requests_get, validate_url_strict  #
 # engine endpoints exist, but api.indexnow.org dispatches automatically.
 # One POST covers all six listed IndexNow participants.
 INDEXNOW_ENDPOINT = "https://api.indexnow.org/indexnow"
+
+
+def credentials_path() -> Path:
+    """Return the IndexNow credential file, preferring the Codex path."""
+    primary = Path.home() / ".config" / "codex-seo" / "indexnow.json"
+    legacy = Path.home() / ".config" / "claude-seo" / "indexnow.json"
+    if primary.exists() or not legacy.exists():
+        return primary
+    return legacy
+
+
+def load_credentials() -> dict[str, str]:
+    """Load a persisted IndexNow key and key location, if the installer saved one."""
+    path = credentials_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    found: dict[str, str] = {}
+    for source, dest in (
+        ("indexnow_key", "key"),
+        ("key", "key"),
+        ("indexnow_key_location", "key_location"),
+        ("key_location", "key_location"),
+    ):
+        value = data.get(source)
+        if isinstance(value, str) and value and dest not in found:
+            found[dest] = value
+    return found
+
+
+def save_credentials(*, key: str | None, key_location: str | None) -> None:
+    """Merge a key and/or key location into the IndexNow credential file."""
+    current = load_credentials()
+    payload: dict[str, str] = {}
+    chosen_key = key or current.get("key")
+    chosen_location = key_location or current.get("key_location")
+    if chosen_key:
+        payload["indexnow_key"] = chosen_key
+    if chosen_location:
+        payload["indexnow_key_location"] = chosen_location
+    if not payload:
+        raise ValueError("IndexNow credentials are empty")
+    from backlinks_auth import _write_secure_json
+
+    destination = Path.home() / ".config" / "codex-seo" / "indexnow.json"
+    _write_secure_json(str(destination), payload)
+
+
+def clear_credentials() -> None:
+    """Delete Codex and legacy IndexNow credential files."""
+    for path in (
+        Path.home() / ".config" / "codex-seo" / "indexnow.json",
+        Path.home() / ".config" / "claude-seo" / "indexnow.json",
+    ):
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            continue
 
 
 def _normalized_host(value: str) -> str:
@@ -206,10 +270,19 @@ def main() -> int:
     )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    stored = load_credentials()
+    if not args.key:
+        args.key = stored.get("key")
+    if not args.key_location:
+        args.key_location = stored.get("key_location")
 
     if not args.key or not args.key_location:
-        print("Error: --key and --key-location required (or set env vars).",
-              file=sys.stderr)
+        print(
+            "Error: --key and --key-location required "
+            "(or set INDEXNOW_KEY and INDEXNOW_KEY_LOCATION, "
+            "or store them with the Bing extension installer).",
+            file=sys.stderr,
+        )
         return 2
 
     if args.verify_only:

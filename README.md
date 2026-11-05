@@ -29,7 +29,7 @@ Python requirement: 3.11 to 3.14.
 ## Status
 
 - Current release: `2.5.0+codex.1`, synced to claude-seo `v2.5.0`.
-- Installer default ref: `v2.5.0-codex.1`.
+- Installer default ref: `main`. There is no published `v2.5.0-codex.1` tag. Pin `CODEX_SEO_REF` to a commit after you have tested it.
 - 28 sub-skills: 24 core workflows, the orchestrator, the FLOW framework skill, and 2 extension mirrors (`seo-dataforseo`, `seo-image-gen`), plus Codex aliases for performance and visual inside the core count.
 - Runtime credentials stay outside the repo.
 
@@ -38,13 +38,13 @@ Python requirement: 3.11 to 3.14.
 ### One-Line Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Joseemm96/codex-seo/v2.5.0-codex.1/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Joseemm96/codex-seo/main/install.sh | bash
 ```
 
 Windows:
 
 ```powershell
-irm https://raw.githubusercontent.com/Joseemm96/codex-seo/v2.5.0-codex.1/install.ps1 | iex
+irm https://raw.githubusercontent.com/Joseemm96/codex-seo/main/install.ps1 | iex
 ```
 
 ### Review Before Installing
@@ -70,7 +70,7 @@ The installer copies skills into `~/.codex/skills/`, installs TOML agents into `
 ```bash
 CODEX_HOME=~/.codex \
 CODEX_SEO_REPO=https://github.com/Joseemm96/codex-seo \
-CODEX_SEO_REF=v2.5.0-codex.1 \
+CODEX_SEO_REF=main \
 bash install.sh
 ```
 
@@ -78,7 +78,7 @@ bash install.sh
 |---|---|
 | `CODEX_HOME` | Alternate Codex home. Defaults to `~/.codex`. |
 | `CODEX_SEO_REPO` | Git URL, fork URL, or local repository path. |
-| `CODEX_SEO_REF` | Branch, tag, or commit. Defaults to `v2.5.0-codex.1`. |
+| `CODEX_SEO_REF` | Branch, tag, or commit. Defaults to `main`. |
 | `CODEX_SEO_PYTHON` | Python interpreter for the launcher. Must be 3.11 to 3.14. |
 | `CODEX_SEO_SKIP_PLAYWRIGHT_BROWSER=1` | Skip Chromium install for visual and PDF workflows. |
 | `CODEX_SEO_PLAYWRIGHT_WITH_DEPS=1` | Ask Playwright to install system dependencies where supported. |
@@ -143,7 +143,8 @@ Optional installers under `extensions/` target Codex rather than Claude Desktop:
 | Extension | Config |
 |---|---|
 | `dataforseo`, `firecrawl`, `banana`, `ahrefs` | MCP server table in `~/.codex/config.toml` |
-| `profound`, `seranking`, `bing-webmaster` | `[codex_seo.<name>]` table in `~/.codex/config.toml` |
+| `profound`, `seranking` | `[codex_seo.<name>]` table in `~/.codex/config.toml` |
+| `bing-webmaster` | `~/.config/codex-seo/backlinks-api.json` and `indexnow.json` |
 | `matomo` | `~/.config/codex-seo/matomo.json` |
 | `unlighthouse` | Local `npx` runner, no API key |
 
@@ -161,7 +162,7 @@ codex-seo/
   scripts/runtime.py
   data/google-updates.json
   extensions/
-  hooks/pre-commit-schema-check.sh
+  hooks/install-git-hook.sh  # optional Git pre-commit, not a Codex plugin hook
   schema/
   tests/
 ```
@@ -191,6 +192,14 @@ python -m pytest tests/
 ./scripts/codex-seo run portability_check.py
 bash -n install.sh uninstall.sh
 ```
+
+Schema and SEO checks are a Git pre-commit hook, not a Codex plugin event. From a clone:
+
+```bash
+bash hooks/install-git-hook.sh
+```
+
+Windows: `powershell -ExecutionPolicy Bypass -File .\hooks\install-git-hook.ps1`
 
 ## Requirements
 

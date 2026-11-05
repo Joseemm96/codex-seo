@@ -49,7 +49,24 @@ def test_setup_mcp_writes_config_with_no_leftover_temp_file(tmp_path, monkeypatc
 def test_save_settings_preserves_unrelated_keys_on_existing_file(tmp_path, monkeypatch):
     path = _config(tmp_path)
     path.parent.mkdir(parents=True)
-    path.write_text('[notes]\nkeep = "me"\n\n[mcp_servers."other-mcp"]\ncommand = "x"\n', encoding="utf-8")
+    path.write_text(
+        "\n".join(
+            [
+                '[notes]',
+                'keep = "me"',
+                "",
+                "[mcp_servers.remote]",
+                'url = "https://example.test/mcp"',
+                'bearer_token_env_var = "TOKEN"',
+                "enabled = true",
+                "",
+                '[mcp_servers."other-mcp"]',
+                'command = "x"',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
     module = _load_module(monkeypatch, tmp_path)
 
     module.setup_mcp("dummy-api-key")
@@ -57,21 +74,26 @@ def test_save_settings_preserves_unrelated_keys_on_existing_file(tmp_path, monke
     text = path.read_text(encoding="utf-8")
     data = tomllib.loads(text)
     assert data["notes"]["keep"] == "me"
-    assert "other-mcp" in data["mcp_servers"]
-    assert "nanobanana-mcp" in data["mcp_servers"]
+    assert data["mcp_servers"]["other-mcp"]["command"] == "x"
+    remote = data["mcp_servers"]["remote"]
+    assert remote["url"] == "https://example.test/mcp"
+    assert remote["bearer_token_env_var"] == "TOKEN"
+    assert remote["enabled"] is True
+    assert data["mcp_servers"]["nanobanana-mcp"]["env"]["GOOGLE_AI_API_KEY"] == "dummy-api-key"
 
 
 def test_save_settings_stages_temp_file_in_same_directory(tmp_path, monkeypatch):
     module = _load_module(monkeypatch, tmp_path)
+    editor = module._codex_config()
     tmp_dirs_seen = []
-    real_mkstemp = module.tempfile.mkstemp
+    real_mkstemp = editor.tempfile.mkstemp
 
     def spy_mkstemp(*args, **kwargs):
         fd, path = real_mkstemp(*args, **kwargs)
         tmp_dirs_seen.append(Path(path).parent)
         return fd, path
 
-    monkeypatch.setattr(module.tempfile, "mkstemp", spy_mkstemp)
+    monkeypatch.setattr(editor.tempfile, "mkstemp", spy_mkstemp)
 
     module.save_settings({"mcpServers": {}})
 

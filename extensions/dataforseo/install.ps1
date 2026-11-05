@@ -96,37 +96,23 @@ Copy-Item -Force "$SourceDir\agents\seo-dataforseo.toml" "$AgentDir\seo-datafors
 Write-Host "-> Installing field config..." -ForegroundColor Yellow
 Copy-Item -Force "$SourceDir\field-config.json" $FieldConfigPath
 
-# Merge MCP config into ~/.codex/config.toml
+# Merge MCP config into ~/.codex/config.toml via the shared TOML editor.
 Write-Host "-> Configuring MCP server..." -ForegroundColor Yellow
-
-$settingsContent = if (Test-Path $McpConfigFile) { Get-Content $McpConfigFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
-if (-not $settingsContent.mcpServers) { $settingsContent | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force }
-$settingsContent.mcpServers | Add-Member -NotePropertyName 'dataforseo' -NotePropertyValue @{
-    command = 'npx'
-    args = @('-y', 'dataforseo-mcp-server@2.8.10')
-    env = @{
-        DATAFORSEO_USERNAME = $DfseUsername
-        DATAFORSEO_PASSWORD = $DfsePassword
-        ENABLED_MODULES = 'SERP,KEYWORDS_DATA,ONPAGE,DATAFORSEO_LABS,BACKLINKS,DOMAIN_ANALYTICS,BUSINESS_DATA,CONTENT_ANALYSIS,AI_OPTIMIZATION'
-        FIELD_CONFIG_PATH = $FieldConfigPath
-    }
-} -Force
-# Write atomically: stage to a temp file in the same directory, then swap
-# it into place, so a crash mid-write never leaves ~/.codex/config.toml truncated
-# or half-written (it is shared with Claude Code and other installers).
-# -Depth 100 (not the ConvertTo-Json default of 2) so an existing
-# ~/.codex/config.toml with deeply nested config round-trips intact.
-$TempConfigFile = Join-Path (Split-Path -Parent $McpConfigFile) ".config.toml.$([guid]::NewGuid().ToString('N')).tmp"
-$jsonText = $settingsContent | ConvertTo-Json -Depth 100
-# Write without a byte-order mark: on Windows PowerShell 5.1, Set-Content -Encoding UTF8
-# emits a BOM and Node's JSON.parse rejects it, which would make ~/.codex/config.toml unreadable.
-[System.IO.File]::WriteAllText($TempConfigFile, $jsonText, (New-Object System.Text.UTF8Encoding $false))
-Move-Item -Path $TempConfigFile -Destination $McpConfigFile -Force
-# Restrict the credential-bearing settings file to the current user only.
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "Python 3 required" }
+$Helper = Join-Path (Split-Path -Parent (Split-Path -Parent $SourceDir)) "scripts\codex_config.py"
+if (-not (Test-Path $Helper)) { throw "codex_config.py not found at $Helper" }
+$env:CODEX_SEO_USERNAME = $DfseUsername
+$env:CODEX_SEO_SECRET = $DfsePassword
+$env:CODEX_SEO_FIELD_CONFIG = $FieldConfigPath
+$env:CODEX_SEO_ENABLED_MODULES = "SERP,KEYWORDS_DATA,ONPAGE,DATAFORSEO_LABS,BACKLINKS,DOMAIN_ANALYTICS,BUSINESS_DATA,CONTENT_ANALYSIS,AI_OPTIMIZATION"
 try {
-    icacls $McpConfigFile /inheritance:r /grant:r "${env:USERNAME}:F" | Out-Null
-} catch {
-    Write-Host "  Note: could not restrict ~/.codex/config.toml ACL; review manually." -ForegroundColor Yellow
+    & python $Helper upsert-mcp --path $McpConfigFile --server dataforseo --command npx --arg=-y --arg=dataforseo-mcp-server@2.8.10 --env-from DATAFORSEO_USERNAME=CODEX_SEO_USERNAME --env-from DATAFORSEO_PASSWORD=CODEX_SEO_SECRET --env-from ENABLED_MODULES=CODEX_SEO_ENABLED_MODULES --env-from FIELD_CONFIG_PATH=CODEX_SEO_FIELD_CONFIG
+    if ($LASTEXITCODE -ne 0) { throw "Nothing was saved (python exited $LASTEXITCODE). See the message above." }
+} finally {
+    Remove-Item Env:CODEX_SEO_SECRET -ErrorAction SilentlyContinue
+    Remove-Item Env:CODEX_SEO_USERNAME -ErrorAction SilentlyContinue
+    Remove-Item Env:CODEX_SEO_FIELD_CONFIG -ErrorAction SilentlyContinue
+    Remove-Item Env:CODEX_SEO_ENABLED_MODULES -ErrorAction SilentlyContinue
 }
 Write-Host "  [OK] MCP server configured in ~/.codex/config.toml" -ForegroundColor Green
 

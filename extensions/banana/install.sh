@@ -61,19 +61,16 @@ main() {
         exit 1
     fi
 
+    CONFIG_HELPER="$(cd "${SOURCE_DIR}/../.." && pwd)/scripts/codex_config.py"
+    if [ ! -f "${CONFIG_HELPER}" ]; then
+        echo "x Missing ${CONFIG_HELPER}"
+        exit 1
+    fi
+
     # Check if nanobanana-mcp is already configured
     MCP_CONFIGURED=false
     if [ -f "${MCP_CONFIG_FILE}" ]; then
-        if python3 - "${MCP_CONFIG_FILE}" <<'PY' 2>/dev/null; then
-import json, sys
-settings_path = sys.argv[1]
-with open(settings_path, 'r') as f:
-    settings = json.load(f)
-if 'mcpServers' in settings and 'nanobanana-mcp' in settings['mcpServers']:
-    sys.exit(0)
-else:
-    sys.exit(1)
-PY
+        if python3 "${CONFIG_HELPER}" has-mcp --path "${MCP_CONFIG_FILE}" --server nanobanana-mcp; then
             MCP_CONFIGURED=true
             echo "✓ nanobanana-mcp already configured in ~/.codex/config.toml"
         fi
@@ -95,49 +92,14 @@ PY
 
         # Configure MCP server
         echo "→ Configuring nanobanana-mcp server..."
-        # Credentials travel in the environment (never argv, never interpolated into the source string)
-        # and the settings file is written atomically with 0600 permissions.
-        CODEX_SEO_SECRET="${GOOGLE_AI_API_KEY}" python3 - "${MCP_CONFIG_FILE}" <<'PY'
-import os, re, sys, tempfile
-path, api_key = sys.argv[1], os.environ["CODEX_SEO_SECRET"]
-SERVER = "nanobanana-mcp"
-
-def _esc(value):
-    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
-
-def _read(target):
-    if not os.path.exists(target) or os.path.getsize(target) == 0:
-        return ""
-    text = open(target, encoding="utf-8").read()
-    try:
-        import tomllib
-        tomllib.loads(text)
-    except Exception:
-        sys.exit("x " + target + " is not valid TOML. Nothing was changed; fix it and rerun.")
-    return text
-
-def _drop(text, server):
-    pattern = re.compile('(?ms)^\\[mcp_servers\\."' + re.escape(server) + '"(?:\\.[^\\]]*)?\\]\\n.*?(?=^\\[|\\Z)')
-    return pattern.sub("", text).rstrip() + "\n"
-
-def _write(target, text):
-    directory = os.path.dirname(target) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".config.", suffix=".toml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text if text.endswith("\n") else text + "\n")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, target)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-block = '[mcp_servers."%s"]\ncommand = "npx"\nargs = ["-y", "@ycse/nanobanana-mcp@1.1.1"]\n\n[mcp_servers."%s".env]\nGOOGLE_AI_API_KEY = "%s"\n' % (SERVER, SERVER, _esc(api_key))
-_write(path, _drop(_read(path), SERVER) + block)
-print("Configured MCP server nanobanana-mcp in Codex config.toml")
-PY
+        # The secret stays in the environment. Only the nanobanana-mcp table is replaced.
+        CODEX_SEO_SECRET="${GOOGLE_AI_API_KEY}" python3 "${CONFIG_HELPER}" upsert-mcp \
+            --path "${MCP_CONFIG_FILE}" \
+            --server nanobanana-mcp \
+            --command npx \
+            --arg=-y \
+            --arg="@ycse/nanobanana-mcp@1.1.1" \
+            --env-from GOOGLE_AI_API_KEY=CODEX_SEO_SECRET
         if [ $? -ne 0 ]; then
             echo "✗ Could not auto-configure MCP server."
             echo "  See: extensions/banana/docs/BANANA-SETUP.md"

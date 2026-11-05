@@ -83,51 +83,22 @@ main() {
 
     # Merge MCP config into ~/.codex/config.toml
     echo "-> Configuring MCP server..."
+    CONFIG_HELPER="$(cd "${SOURCE_DIR}/../.." && pwd)/scripts/codex_config.py"
+    if [ ! -f "${CONFIG_HELPER}" ]; then
+        echo "x Missing ${CONFIG_HELPER}"
+        exit 1
+    fi
 
-    # Credentials travel in the environment (never argv, never interpolated into the source string)
-    # and the settings file is written atomically with 0600 permissions.
-    CODEX_SEO_SECRET="${FIRECRAWL_API_KEY}" python3 - "${MCP_CONFIG_FILE}" <<'PY'
-import os, re, sys, tempfile
-path, api_key = sys.argv[1], os.environ["CODEX_SEO_SECRET"]
-SERVER = "firecrawl-mcp"
-
-def _esc(value):
-    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
-
-def _read(target):
-    if not os.path.exists(target) or os.path.getsize(target) == 0:
-        return ""
-    text = open(target, encoding="utf-8").read()
-    try:
-        import tomllib
-        tomllib.loads(text)
-    except Exception:
-        sys.exit("x " + target + " is not valid TOML. Nothing was changed; fix it and rerun.")
-    return text
-
-def _drop(text, server):
-    pattern = re.compile('(?ms)^\\[mcp_servers\\."' + re.escape(server) + '"(?:\\.[^\\]]*)?\\]\\n.*?(?=^\\[|\\Z)')
-    return pattern.sub("", text).rstrip() + "\n"
-
-def _write(target, text):
-    directory = os.path.dirname(target) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".config.", suffix=".toml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text if text.endswith("\n") else text + "\n")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, target)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-block = '[mcp_servers."%s"]\ncommand = "npx"\nargs = ["-y", "firecrawl-mcp@3.11.0"]\n\n[mcp_servers."%s".env]\nFIRECRAWL_API_KEY = "%s"\n' % (SERVER, SERVER, _esc(api_key))
-_write(path, _drop(_read(path), SERVER) + block)
-print("Configured MCP server firecrawl-mcp in Codex config.toml")
-PY
-    if [ $? -ne 0 ]; then
+    # The secret stays in the environment. codex_config.py replaces only the
+    # firecrawl-mcp table, quoted or bare, and validates the full document.
+    if ! CODEX_SEO_SECRET="${FIRECRAWL_API_KEY}" python3 "${CONFIG_HELPER}" upsert-mcp \
+        --path "${MCP_CONFIG_FILE}" \
+        --server firecrawl-mcp \
+        --command npx \
+        --arg=-y \
+        --arg=firecrawl-mcp@3.11.0 \
+        --env-from FIRECRAWL_API_KEY=CODEX_SEO_SECRET
+    then
         echo "  Warning: Could not auto-configure MCP server."
         echo "  Add the firecrawl-mcp server manually to ~/.codex/config.toml"
         echo "  See: extensions/firecrawl/docs/FIRECRAWL-SETUP.md"

@@ -36,26 +36,18 @@ Write-Host "[OK] Installed skill: $SkillTarget"
 # Pre-warm.
 & npx --yes --package=@ahrefs/mcp@0.0.11 mcp --help *> $null
 
-# Merge ~/.codex/config.toml.
-$settingsContent = if (Test-Path $McpConfigJson) { Get-Content $McpConfigJson -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
-if (-not $settingsContent.mcpServers) { $settingsContent | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force }
-$settingsContent.mcpServers | Add-Member -NotePropertyName 'ahrefs' -NotePropertyValue @{
-    command = 'npx'
-    args = @('--yes', '--package=@ahrefs/mcp@0.0.11', 'mcp')
-    env = @{ AHREFS_API_TOKEN = $Plain }
-} -Force
-# Write atomically: stage to a temp file in the same directory, then swap
-# it into place, so a crash mid-write never leaves ~/.codex/config.toml truncated
-# or half-written (it is shared with Claude Code and other installers).
-# -Depth 100 (not the ConvertTo-Json default of 2) so an existing
-# ~/.codex/config.toml with deeply nested config round-trips intact.
-$TempConfigJson = Join-Path (Split-Path -Parent $McpConfigJson) ".config.toml.$([guid]::NewGuid().ToString('N')).tmp"
-$jsonText = $settingsContent | ConvertTo-Json -Depth 100
-# Write without a byte-order mark: on Windows PowerShell 5.1, Set-Content -Encoding UTF8
-# emits a BOM and Node's JSON.parse rejects it, which would make ~/.codex/config.toml unreadable.
-[System.IO.File]::WriteAllText($TempConfigJson, $jsonText, (New-Object System.Text.UTF8Encoding $false))
-Move-Item -Path $TempConfigJson -Destination $McpConfigJson -Force
-Write-Host "Wrote mcpServers.ahrefs to $McpConfigJson"
+# Merge ~/.codex/config.toml through the shared TOML editor.
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "Python 3 required." }
+$Helper = Join-Path (Split-Path -Parent (Split-Path -Parent $SourceDir)) "scripts\codex_config.py"
+if (-not (Test-Path $Helper)) { throw "codex_config.py not found at $Helper" }
+$env:CODEX_SEO_SECRET = $Plain
+try {
+    & python $Helper upsert-mcp --path $McpConfigJson --server ahrefs --command npx --arg=--yes --arg=--package=@ahrefs/mcp@0.0.11 --arg=mcp --env-from AHREFS_API_TOKEN=CODEX_SEO_SECRET
+    if ($LASTEXITCODE -ne 0) { throw "Nothing was saved (python exited $LASTEXITCODE). See the message above." }
+} finally {
+    Remove-Item Env:CODEX_SEO_SECRET -ErrorAction SilentlyContinue
+}
+Write-Host "Configured mcp_servers.ahrefs in $McpConfigJson"
 
 Write-Host ""
 Write-Host "Done. Open a new Claude Code session and run /seo ahrefs metrics <url>."

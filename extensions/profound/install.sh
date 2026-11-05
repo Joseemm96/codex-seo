@@ -26,46 +26,15 @@ main() {
     mkdir -p "${SKILL_DIR}/seo-profound"
     cp "${SOURCE_DIR}/skills/seo-profound/SKILL.md" "${SKILL_DIR}/seo-profound/SKILL.md"
 
-    CODEX_SEO_SECRET="${PROFOUND_KEY}" python3 - "${SETTINGS_JSON}" <<'PY'
-import os, re, sys, tempfile
-path, key = sys.argv[1], os.environ["CODEX_SEO_SECRET"]
-
-def _esc(value):
-    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
-
-def _read(target):
-    if not os.path.exists(target) or os.path.getsize(target) == 0:
-        return ""
-    text = open(target, encoding="utf-8").read()
-    try:
-        import tomllib
-        tomllib.loads(text)
-    except Exception:
-        sys.exit("x " + target + " is not valid TOML. Nothing was changed; fix it and rerun.")
-    return text
-
-def _drop(text):
-    pattern = re.compile(r'(?ms)^\[codex_seo\.profound\]\n.*?(?=^\[|\Z)')
-    return pattern.sub("", text).rstrip() + "\n"
-
-def _write(target, text):
-    directory = os.path.dirname(target) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".config.", suffix=".toml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text if text.endswith("\n") else text + "\n")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, target)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-block = '[codex_seo.profound]\nPROFOUND_API_KEY = "%s"\n' % _esc(key)
-_write(path, _drop(_read(path)) + block)
-print("Configured codex_seo.profound in Codex config.toml")
-PY
+    CONFIG_HELPER="$(cd "${SOURCE_DIR}/../.." && pwd)/scripts/codex_config.py"
+    if [ ! -f "${CONFIG_HELPER}" ]; then
+        echo "x Missing ${CONFIG_HELPER}"
+        exit 1
+    fi
+    CODEX_SEO_SECRET="${PROFOUND_KEY}" python3 "${CONFIG_HELPER}" upsert-table \
+        --path "${SETTINGS_JSON}" \
+        --table codex_seo.profound \
+        --env-from PROFOUND_API_KEY=CODEX_SEO_SECRET
 
     echo "Done. Try: /seo profound citations brandname"
 }

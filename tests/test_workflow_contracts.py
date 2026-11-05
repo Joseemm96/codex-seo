@@ -46,31 +46,27 @@ def test_seo_audit_wrapper_honors_output_root(monkeypatch, tmp_path: Path):
 
 
 def test_mcp_config_detection_is_sanitized(monkeypatch, tmp_path: Path):
-    settings = tmp_path / "settings.json"
+    settings = tmp_path / "config.toml"
     settings.write_text(
         """
-        {
-          "mcpServers": {
-            "dataforseo": {
-              "command": "npx",
-              "args": ["-y", "dataforseo-mcp-server"],
-              "env": {
-                "DATAFORSEO_USERNAME": "user@example.com",
-                "DATAFORSEO_PASSWORD": "secret"
-              }
-            }
-          }
-        }
+        [mcp_servers.dataforseo]
+        command = "npx"
+        args = ["-y", "dataforseo-mcp-server"]
+
+        [mcp_servers.dataforseo.env]
+        DATAFORSEO_USERNAME = "user@example.com"
+        DATAFORSEO_PASSWORD = "secret"
         """,
         encoding="utf-8",
     )
-    monkeypatch.setattr(run_skill_workflow, "codex_settings_path", lambda: settings)
+    monkeypatch.setattr(run_skill_workflow, "codex_config_path", lambda: settings)
 
     status = run_skill_workflow.configured_mcp_server("dataforseo", ["DATAFORSEO_USERNAME", "DATAFORSEO_PASSWORD"])
 
     assert status["configured"] is True
     assert status["env_keys"] == ["DATAFORSEO_PASSWORD", "DATAFORSEO_USERNAME"]
     assert "secret" not in str(status)
+    assert status["config_path"].endswith("config.toml")
 
 
 def test_google_tier_status_handles_minus_one_and_zero(monkeypatch, tmp_path: Path):

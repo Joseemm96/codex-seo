@@ -1,29 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Pre-commit SEO validation hook for Codex.
+# Git pre-commit SEO validation.
 #
-# Hook configuration in ~/.codex/settings.json:
-# {
-#   "hooks": {
-#     "PreToolUse": [
-#       {
-#         "matcher": "Bash",
-#         "hooks": [
-#           {
-#             "type": "command",
-#             "command": "~/.codex/skills/seo/hooks/pre-commit-seo-check.sh",
-#             "exitCodes": { "2": "block" }
-#           }
-#         ]
-#       }
-#     ]
-#   }
-# }
-#
-# NOTE: The matcher is "Bash" (tool name only). This script runs on ALL
-# Bash tool uses. It checks if there are staged files before proceeding.
-# If there are no staged changes, it exits 0 immediately.
+# Install both schema and SEO checks with: bash hooks/install-git-hook.sh
+# This file is not a Codex PreToolUse or PostToolUse plugin hook. It inspects
+# the Git index and exits 0 when nothing is staged.
 
 ERRORS=0
 WARNINGS=0

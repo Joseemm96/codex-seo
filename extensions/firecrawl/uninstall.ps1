@@ -12,24 +12,15 @@ if (Test-Path $SkillDir) {
 }
 
 if (Test-Path $McpConfigFile) {
-    $settings = Get-Content $McpConfigFile -Raw | ConvertFrom-Json
-    if ($settings.mcpServers.'firecrawl-mcp') {
-        $settings.mcpServers.PSObject.Properties.Remove('firecrawl-mcp')
-        # Write atomically: stage to a temp file in the same directory, then
-        # swap it into place, so a crash mid-write never leaves
-        # ~/.codex/config.toml truncated or half-written (it is shared with
-        # Claude Code and other installers).
-        # -Depth 100 (not the ConvertTo-Json default of 2, or the previous
-        # 10) so an existing ~/.codex/config.toml with deeply nested config
-        # round-trips intact.
-        $TempConfigFile = Join-Path (Split-Path -Parent $McpConfigFile) ".config.toml.$([guid]::NewGuid().ToString('N')).tmp"
-        $jsonText = $settings | ConvertTo-Json -Depth 100
-# Write without a byte-order mark: on Windows PowerShell 5.1, Set-Content -Encoding UTF8
-# emits a BOM and Node's JSON.parse rejects it, which would make ~/.codex/config.toml unreadable.
-[System.IO.File]::WriteAllText($TempConfigFile, $jsonText, (New-Object System.Text.UTF8Encoding $false))
-        Move-Item -Path $TempConfigFile -Destination $McpConfigFile -Force
-        Write-Host "v Removed MCP server from ~/.codex/config.toml" -ForegroundColor Green
+    if (-not (Get-Command python -ErrorAction SilentlyContinue)) {
+        throw "Python 3 required to remove firecrawl-mcp from config.toml"
     }
+    $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    $Helper = Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) "scripts\codex_config.py"
+    if (-not (Test-Path $Helper)) { throw "codex_config.py not found at $Helper" }
+    & python $Helper remove-mcp --path $McpConfigFile --server firecrawl-mcp
+    if ($LASTEXITCODE -ne 0) { throw "Could not remove firecrawl-mcp from $McpConfigFile" }
+    Write-Host "v Removed MCP server from ~/.codex/config.toml" -ForegroundColor Green
 }
 
 Write-Host ""

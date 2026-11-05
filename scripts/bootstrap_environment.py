@@ -173,6 +173,20 @@ def bootstrap_environment(
         and verification_step["ok"]
         and core_ready
     )
+    runtime_state = "not-written"
+    runtime_state_error = None
+    if ok:
+        try:
+            import runtime as runtime_mod
+
+            runtime_state = runtime_mod.record_managed_venv_readiness(
+                venv_dir,
+                browser_ready=bool(playwright_step and playwright_step.get("ok")),
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            ok = False
+            runtime_state = "error"
+            runtime_state_error = str(exc)
     return {
         "ok": ok,
         "full_ready": full_ready,
@@ -180,6 +194,8 @@ def bootstrap_environment(
         "venv": str(venv_dir),
         "python": str(venv_python),
         "optional_failed_groups": optional_failed_groups,
+        "runtime_state": runtime_state,
+        "runtime_state_error": runtime_state_error,
         "steps": steps,
         "verification": verification,
     }
