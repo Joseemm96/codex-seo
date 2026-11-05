@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+
+- Extension installers edit one `mcp_servers` table at a time, including bare and quoted headings, and validate the full `config.toml` before replacing it.
+- `bootstrap_environment.py` writes the same `runtime-state.json` the launcher requires, so a successful install can run bundled scripts.
+- Installer default ref is `main`. `v2.5.0-codex.1` was never published.
+- Windows manual installs rewrite skill and agent launcher commands to the selected Python plus `runtime.py`.
+- Bing Webmaster credentials are stored for `backlinks_auth.py` and `indexnow_submit.py`. Uninstall removes those credentials.
+- Headless MCP detection reads `config.toml`.
+- The plugin manifest no longer declares an unsupported `pre-commit` hook. Use `hooks/install-git-hook.sh` for Git validation.
+
 ## [2.5.0+codex.1] - 2026-11-05
 
 ### Added

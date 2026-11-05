@@ -50,48 +50,19 @@ main() {
     echo "✓ Installed skill: ${SKILL_DIR}/seo-ahrefs/SKILL.md"
 
     # Merge MCP config into ~/.codex/config.toml atomically.
-    mkdir -p "$(dirname "${MCP_CONFIG_JSON}")"
-    CODEX_SEO_SECRET="${AHREFS_TOKEN}" python3 - "${MCP_CONFIG_JSON}" <<'PY'
-import os, re, sys, tempfile
-path, token = sys.argv[1], os.environ["CODEX_SEO_SECRET"]
-SERVER = "ahrefs"
-
-def _esc(value):
-    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
-
-def _read(target):
-    if not os.path.exists(target) or os.path.getsize(target) == 0:
-        return ""
-    text = open(target, encoding="utf-8").read()
-    try:
-        import tomllib
-        tomllib.loads(text)
-    except Exception:
-        sys.exit("x " + target + " is not valid TOML. Nothing was changed; fix it and rerun.")
-    return text
-
-def _drop(text, server):
-    pattern = re.compile('(?ms)^\\[mcp_servers\\."' + re.escape(server) + '"(?:\\.[^\\]]*)?\\]\\n.*?(?=^\\[|\\Z)')
-    return pattern.sub("", text).rstrip() + "\n"
-
-def _write(target, text):
-    directory = os.path.dirname(target) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".config.", suffix=".toml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text if text.endswith("\n") else text + "\n")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, target)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-block = '[mcp_servers."ahrefs"]\ncommand = "npx"\nargs = ["--yes", "--package=@ahrefs/mcp@0.0.11", "mcp"]\n\n[mcp_servers."ahrefs".env]\nAHREFS_API_TOKEN = "%s"\n' % _esc(token)
-_write(path, _drop(_read(path), SERVER) + block)
-print("Configured MCP server ahrefs in Codex config.toml")
-PY
+    CONFIG_HELPER="$(cd "${SOURCE_DIR}/../.." && pwd)/scripts/codex_config.py"
+    if [ ! -f "${CONFIG_HELPER}" ]; then
+        echo "x Missing ${CONFIG_HELPER}"
+        exit 1
+    fi
+    CODEX_SEO_SECRET="${AHREFS_TOKEN}" python3 "${CONFIG_HELPER}" upsert-mcp \
+        --path "${MCP_CONFIG_JSON}" \
+        --server ahrefs \
+        --command npx \
+        --arg=--yes \
+        --arg=--package=@ahrefs/mcp@0.0.11 \
+        --arg=mcp \
+        --env-from AHREFS_API_TOKEN=CODEX_SEO_SECRET
 
     echo
     echo "Done. Open a new Claude Code session and run:"

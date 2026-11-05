@@ -1,158 +1,223 @@
-"""Regression: extension installers must not source-inject credentials.
+"""Extension installers must not put credential values on the Python command line.
 
-Before the fix, the DataForSEO / Firecrawl / Banana shell installers
-interpolated user-supplied credentials directly into a ``python3 -c``
-source string, so a credential containing ``'''`` broke out of the string
-literal and executed arbitrary code at install time. The fix passes
-credentials as ``sys.argv`` via a quoted heredoc and writes the
-credential-bearing settings file atomically with ``0600`` perms.
+The shared editor in scripts/codex_config.py reads secrets from the environment,
+replaces one table, and refuses to overwrite an unparseable config.toml.
 """
 
 from __future__ import annotations
 
 import os
-import re
-import tomllib
+import stat
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+HELPER = ROOT / "scripts" / "codex_config.py"
+REMOTE = """
+[mcp_servers.remote]
+url = "https://example.test/mcp"
+bearer_token_env_var = "TOKEN"
+enabled = true
+"""
 
-# rel path -> (extra argv after the settings path, env var carrying the secret).
-# Secrets travel in the environment: argv is readable by other local users
-# through ps, the environment of a process is not.
-INSTALLERS = {
-    "extensions/dataforseo/install.sh": (["field.json"], "CODEX_SEO_SECRET"),
-    "extensions/firecrawl/install.sh": ([], "CODEX_SEO_SECRET"),
-    "extensions/banana/install.sh": ([], "CODEX_SEO_SECRET"),
-    "extensions/ahrefs/install.sh": ([], "CODEX_SEO_SECRET"),
-    "extensions/profound/install.sh": ([], "CODEX_SEO_SECRET"),
-    "extensions/seranking/install.sh": ([], "CODEX_SEO_SECRET"),
-    "extensions/bing-webmaster/install.sh": (["https://e.test/key.txt"], "CODEX_SEO_SECRET"),
-}
-BASE_ENV = {"CODEX_SEO_USERNAME": "user", "CODEX_SEO_INDEXNOW_KEY": "idx"}
-
-_HEREDOC_RE = re.compile(r"python3 - [^\n]*<<'PY'\n(.*?)\nPY\n", re.DOTALL)
-
-
-def _extract_writer(text: str) -> str:
-    matches = [m.group(1) for m in _HEREDOC_RE.finditer(text)]
-    writers = [m for m in matches if "os.replace" in m]
-    assert writers, "no quoted <<'PY' settings writer found in installer"
-    return writers[0]
+MCP_CASES = [
+    "firecrawl-mcp",
+    "dataforseo",
+    "nanobanana-mcp",
+    "ahrefs",
+]
+TABLE_CASES = [
+    ("codex_seo.profound", "PROFOUND_API_KEY"),
+    ("codex_seo.seranking", "SERANKING_API_KEY"),
+]
 
 
-def _run(tmp_path: Path, rel: str, secret: str, settings: Path):
-    extra, env_name = INSTALLERS[rel]
-    script = tmp_path / "writer.py"
-    script.write_text(_extract_writer((ROOT / rel).read_text(encoding="utf-8")), encoding="utf-8")
-    env = {**os.environ, **BASE_ENV, env_name: secret}
-    return subprocess.run([sys.executable, str(script), str(settings), *extra],
-                          cwd=tmp_path, env=env, capture_output=True, text=True)
+def _mode(path: Path) -> int:
+    return stat.S_IMODE(path.stat().st_mode)
 
 
-@pytest.mark.parametrize("rel", INSTALLERS)
-def test_installer_uses_safe_credential_pattern(rel: str) -> None:
-    text = (ROOT / rel).read_text(encoding="utf-8")
-    assert "\'\'\'${" not in text, f"{rel} still interpolates a credential into Python source"
-    assert "<<'PY'" in text, f"{rel} missing quoted heredoc"
-    assert "os.environ" in text, f"{rel} not reading the secret from the environment"
-    assert "0o600" in text, f"{rel} not writing settings with 0600 perms"
+def test_shell_installers_delegate_to_the_shared_editor() -> None:
+    expected = {
+        "extensions/firecrawl/install.sh": "upsert-mcp",
+        "extensions/dataforseo/install.sh": "upsert-mcp",
+        "extensions/banana/install.sh": "upsert-mcp",
+        "extensions/ahrefs/install.sh": "upsert-mcp",
+        "extensions/profound/install.sh": "upsert-table",
+        "extensions/seranking/install.sh": "upsert-table",
+        "extensions/bing-webmaster/install.sh": "store-bing",
+    }
+    for rel, command in expected.items():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "scripts/codex_config.py" in text, rel
+        assert command in text, rel
+        assert "<<'PY'" not in text, rel
+        joined = text.replace("\\\n", " ")
+        for line in joined.splitlines():
+            if "python3" not in line or "codex_config.py" not in line:
+                continue
+            args = line.split("python3", 1)[1]
+            assert "${CONFIG_HELPER}" in args or "codex_config.py" in args
+            assert not any(
+                token in args
+                for token in (
+                    "${FIRECRAWL_API_KEY}",
+                    "${DFSE_PASSWORD}",
+                    "${DFSE_USERNAME}",
+                    "${GOOGLE_AI_API_KEY}",
+                    "${AHREFS_TOKEN}",
+                    "${PROFOUND_KEY}",
+                    "${SR_KEY}",
+                    "${BING_KEY}",
+                    "${INDEXNOW_KEY}",
+                    "${INDEXNOW_LOC}",
+                )
+            ), (rel, line)
 
 
-@pytest.mark.skipif(
-    os.name != "posix", reason="asserts 0o600 mode bits, which Windows does not represent"
-)
-@pytest.mark.parametrize("rel", INSTALLERS)
-def test_installer_credential_injection_is_inert(tmp_path: Path, rel: str) -> None:
-    settings = tmp_path / "settings.json"
-    marker = tmp_path / "PWNED"
-    payload = f"x\'\'\'; open({str(marker)!r}, 'w').write('pwned'); y=\'\'\'"
-    result = _run(tmp_path, rel, payload, settings)
+def test_shell_uninstallers_remove_real_tables() -> None:
+    expected = {
+        "extensions/firecrawl/uninstall.sh": "remove-mcp",
+        "extensions/dataforseo/uninstall.sh": "remove-mcp",
+        "extensions/banana/uninstall.sh": "remove-mcp",
+        "extensions/ahrefs/uninstall.sh": "remove-mcp",
+        "extensions/profound/uninstall.sh": "remove-table",
+        "extensions/seranking/uninstall.sh": "remove-table",
+        "extensions/bing-webmaster/uninstall.sh": "remove-bing",
+    }
+    for rel, command in expected.items():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "codex_config.py" in text, rel
+        assert command in text, rel
+        assert "json.load" not in text, rel
+
+
+@pytest.mark.skipif(os.name != "posix", reason="asserts POSIX mode bits")
+@pytest.mark.parametrize("server", MCP_CASES)
+def test_mcp_upsert_preserves_other_servers_and_stores_secret_literally(tmp_path: Path, server: str) -> None:
+    settings = tmp_path / "config.toml"
+    settings.write_text(
+        f'[mcp_servers.{server}]\ncommand = "old"\n\n{REMOTE}',
+        encoding="utf-8",
+    )
+    payload = "x'''; open('pwned','w').write('pwned'); y='''"
+    env = {**os.environ, "CODEX_SEO_SECRET": payload}
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            "upsert-mcp",
+            "--path",
+            str(settings),
+            "--server",
+            server,
+            "--command",
+            "npx",
+            "--arg=-y",
+            "--env-from",
+            "EXAMPLE_KEY=CODEX_SEO_SECRET",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode == 0, result.stderr
-    assert not marker.exists(), f"{rel}: credential injection executed code"
-    blob = settings.read_text(encoding="utf-8")
-    tomllib.loads(blob)
-    assert payload in blob, f"{rel}: credential not stored literally"
-    assert (settings.stat().st_mode & 0o777) == 0o600, f"{rel}: settings not 0600"
+    data = tomllib.loads(settings.read_text(encoding="utf-8"))
+    names = list(data["mcp_servers"])
+    assert names.count(server) == 1
+    assert data["mcp_servers"][server]["env"]["EXAMPLE_KEY"] == payload
+    remote = data["mcp_servers"]["remote"]
+    assert remote["url"] == "https://example.test/mcp"
+    assert remote["bearer_token_env_var"] == "TOKEN"
+    assert remote["enabled"] is True
+    assert _mode(settings) == 0o600
 
 
-@pytest.mark.parametrize("rel", INSTALLERS)
-def test_installer_never_overwrites_an_unparseable_config(tmp_path: Path, rel: str) -> None:
-    """A malformed ~/.codex/config.toml or settings.json must survive untouched."""
-    settings = tmp_path / "settings.json"
-    original = '{"mcpServers": {"mine": {}}, oops'
+@pytest.mark.parametrize("table,field", TABLE_CASES)
+def test_table_upsert_replaces_bare_heading_without_duplicating(tmp_path: Path, table: str, field: str) -> None:
+    settings = tmp_path / "config.toml"
+    bare = table.replace(".", ".")
+    settings.write_text(f"[{bare}]\n{field} = \"old\"\n\n[notes]\nkeep = \"yes\"\n", encoding="utf-8")
+    env = {**os.environ, "CODEX_SEO_SECRET": 'quote " and \\ slash'}
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            "upsert-table",
+            "--path",
+            str(settings),
+            "--table",
+            table,
+            "--env-from",
+            f"{field}=CODEX_SEO_SECRET",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    text = settings.read_text(encoding="utf-8")
+    data = tomllib.loads(text)
+    assert data["notes"]["keep"] == "yes"
+    parent, child = table.split(".")
+    assert data[parent][child][field] == 'quote " and \\ slash'
+
+
+@pytest.mark.parametrize("server", MCP_CASES)
+def test_upsert_refuses_unparseable_toml(tmp_path: Path, server: str) -> None:
+    settings = tmp_path / "config.toml"
+    original = '[mcp_servers.mine]\ncommand = "keep"\n oops'
     settings.write_text(original, encoding="utf-8")
-    result = _run(tmp_path, rel, "secret-value", settings)
+    env = {**os.environ, "CODEX_SEO_SECRET": "secret-value"}
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(HELPER),
+            "upsert-mcp",
+            "--path",
+            str(settings),
+            "--server",
+            server,
+            "--command",
+            "npx",
+            "--env-from",
+            "EXAMPLE_KEY=CODEX_SEO_SECRET",
+        ],
+        env=env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
     assert result.returncode != 0
     assert settings.read_text(encoding="utf-8") == original
     assert "Nothing was changed" in result.stderr
 
 
-@pytest.mark.parametrize("rel", sorted(Path(ROOT, "extensions").glob("*/install.sh")))
-def test_no_installer_passes_a_secret_on_the_command_line(rel: Path) -> None:
-    text = rel.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        if "python3 -" in line and "<<'PY'" in line:
-            args = line.split("python3 -", 1)[1]
-            for word in ("KEY", "TOKEN", "PASSWORD", "SECRET"):
-                assert word not in args.split("<<")[0].replace("CONFIG", ""), (rel, line)
+def test_ps1_installers_call_the_helper_and_check_exit_code() -> None:
+    expected = {
+        "extensions/firecrawl/install.ps1": "upsert-mcp",
+        "extensions/dataforseo/install.ps1": "upsert-mcp",
+        "extensions/ahrefs/install.ps1": "upsert-mcp",
+        "extensions/profound/install.ps1": "upsert-table",
+        "extensions/seranking/install.ps1": "upsert-table",
+        "extensions/bing-webmaster/install.ps1": "store-bing",
+    }
+    for rel, command in expected.items():
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "codex_config.py" in text, rel
+        assert command in text, rel
+        assert "$env:CODEX_SEO_SECRET = " in text, rel
+        assert "if ($LASTEXITCODE -ne 0) { throw" in text, rel
+        assert "ConvertFrom-Json" not in text, rel
+        assert "| python -" not in text, rel
 
 
-# PowerShell installers that feed a Python writer through a here-string.
-PS1_WRITERS = {
-    "extensions/profound/install.ps1": ([], "CODEX_SEO_SECRET"),
-    "extensions/seranking/install.ps1": ([], "CODEX_SEO_SECRET"),
-    "extensions/bing-webmaster/install.ps1": (["https://e.test/key.txt"], "CODEX_SEO_SECRET"),
-}
-
-
-def _ps1_writer(rel: str) -> str:
-    text = (ROOT / rel).read_text(encoding="utf-8")
-    match = re.search(r'@"\n(.*?)\n"@', text, re.DOTALL)
-    assert match, f"{rel}: no here-string writer"
-    assert "$" not in match.group(1), f"{rel}: here-string would interpolate a $"
-    return match.group(1)
-
-
-@pytest.mark.parametrize("rel", PS1_WRITERS)
-def test_ps1_writer_reads_secret_from_env_and_never_clobbers(tmp_path: Path, rel: str) -> None:
-    extra, env_name = PS1_WRITERS[rel]
-    script = tmp_path / "writer.py"
-    script.write_text(_ps1_writer(rel), encoding="utf-8")
-    settings = tmp_path / "settings.json"
-    env = {**os.environ, **BASE_ENV, env_name: "secret-value"}
-
-    ok = subprocess.run([sys.executable, str(script), str(settings), *extra],
-                        env=env, capture_output=True, text=True, cwd=tmp_path)
-    assert ok.returncode == 0, ok.stderr
-    assert "secret-value" in settings.read_text(encoding="utf-8")
-
-    original = '{"env": {"MINE": "1"}, broken'
-    settings.write_text(original, encoding="utf-8")
-    bad = subprocess.run([sys.executable, str(script), str(settings), *extra],
-                         env=env, capture_output=True, text=True, cwd=tmp_path)
-    assert bad.returncode != 0 and "Nothing was changed" in bad.stderr
-    assert settings.read_text(encoding="utf-8") == original
-
-
-@pytest.mark.parametrize("rel", [*PS1_WRITERS, "extensions/matomo/install.ps1"])
-def test_ps1_installers_check_the_python_exit_code_and_keep_secrets_off_argv(rel: str) -> None:
-    text = (ROOT / rel).read_text(encoding="utf-8")
+def test_matomo_ps1_still_checks_the_python_exit_code() -> None:
+    text = (ROOT / "extensions/matomo/install.ps1").read_text(encoding="utf-8")
     assert "$env:CODEX_SEO_SECRET = " in text
-    assert "if ($LASTEXITCODE -ne 0) { throw" in text, f"{rel} would print Done after a refusal"
-    for line in text.splitlines():
-        if "| python -" in line:
-            assert not re.search(r"\$(Plain|BingPlain|TokenPlain|IdxKey)\b", line), (rel, line)
-
-
-@pytest.mark.parametrize("rel", sorted(Path(ROOT, "extensions").glob("*/install.sh")))
-def test_python_invocations_carry_no_secret_even_across_continuations(rel: Path) -> None:
-    joined = rel.read_text(encoding="utf-8").replace("\\\n", " ")
-    for line in joined.splitlines():
-        if "python3 -" in line and "<<'PY'" in line:
-            args = line.split("python3 -", 1)[1].split("<<", 1)[0]
-            assert not re.search(r"KEY|TOKEN|PASSWORD|SECRET|USERNAME", args.replace("CONFIG", "")), (rel, line)
+    assert "if ($LASTEXITCODE -ne 0) { throw" in text

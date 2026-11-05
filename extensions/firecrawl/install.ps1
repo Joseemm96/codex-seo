@@ -67,31 +67,18 @@ Write-Host "=> Installing Firecrawl skill..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $SkillDir | Out-Null
 Copy-Item "$SourceDir\skills\seo-firecrawl\SKILL.md" "$SkillDir\SKILL.md" -Force
 
-# Configure MCP server
+# Configure MCP server through the shared TOML editor. It replaces only
+# firecrawl-mcp (quoted or bare headings) and validates the full document.
 Write-Host "=> Configuring MCP server..." -ForegroundColor Yellow
-$settingsContent = if (Test-Path $McpConfigFile) { Get-Content $McpConfigFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
-if (-not $settingsContent.mcpServers) { $settingsContent | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force }
-$settingsContent.mcpServers | Add-Member -NotePropertyName 'firecrawl-mcp' -NotePropertyValue @{
-    command = 'npx'
-    args = @('-y', 'firecrawl-mcp@3.11.0')
-    env = @{ FIRECRAWL_API_KEY = $apiKeyPlain }
-} -Force
-# Write atomically: stage to a temp file in the same directory, then swap
-# it into place, so a crash mid-write never leaves ~/.codex/config.toml truncated
-# or half-written (it is shared with Claude Code and other installers).
-# -Depth 100 (not the ConvertTo-Json default of 2, or the previous 10) so an
-# existing ~/.codex/config.toml with deeply nested config round-trips intact.
-$TempConfigFile = Join-Path (Split-Path -Parent $McpConfigFile) ".config.toml.$([guid]::NewGuid().ToString('N')).tmp"
-$jsonText = $settingsContent | ConvertTo-Json -Depth 100
-# Write without a byte-order mark: on Windows PowerShell 5.1, Set-Content -Encoding UTF8
-# emits a BOM and Node's JSON.parse rejects it, which would make ~/.codex/config.toml unreadable.
-[System.IO.File]::WriteAllText($TempConfigFile, $jsonText, (New-Object System.Text.UTF8Encoding $false))
-Move-Item -Path $TempConfigFile -Destination $McpConfigFile -Force
-# Restrict the credential-bearing settings file to the current user only.
+if (-not (Get-Command python -ErrorAction SilentlyContinue)) { throw "Python 3 required" }
+$Helper = Join-Path (Split-Path -Parent (Split-Path -Parent $SourceDir)) "scripts\codex_config.py"
+if (-not (Test-Path $Helper)) { throw "codex_config.py not found at $Helper" }
+$env:CODEX_SEO_SECRET = $apiKeyPlain
 try {
-    icacls $McpConfigFile /inheritance:r /grant:r "${env:USERNAME}:F" | Out-Null
-} catch {
-    Write-Host "  Note: could not restrict ~/.codex/config.toml ACL; review manually." -ForegroundColor Yellow
+    & python $Helper upsert-mcp --path $McpConfigFile --server firecrawl-mcp --command npx --arg=-y --arg=firecrawl-mcp@3.11.0 --env-from FIRECRAWL_API_KEY=CODEX_SEO_SECRET
+    if ($LASTEXITCODE -ne 0) { throw "Nothing was saved (python exited $LASTEXITCODE). See the message above." }
+} finally {
+    Remove-Item Env:CODEX_SEO_SECRET -ErrorAction SilentlyContinue
 }
 Write-Host "  v MCP server configured" -ForegroundColor Green
 

@@ -38,7 +38,6 @@
     "marketing-automation"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
   "interface": {
     "displayName": "Codex SEO",
     "shortDescription": "Run SEO audits, schema checks, GEO analysis, and reports in Codex.",

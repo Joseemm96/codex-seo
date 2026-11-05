@@ -4,36 +4,23 @@ set -euo pipefail
 main() {
     echo "→ Uninstalling Banana Image Generation extension..."
 
-    # Remove skill (includes copied scripts and references)
-    rm -rf "${CODEX_HOME:-${HOME}/.codex}/skills/seo-image-gen"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    CONFIG_HELPER="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/codex_config.py"
+    MCP_CONFIG_FILE="${CODEX_HOME:-${HOME}/.codex}/config.toml"
 
-    # Remove agent
+    rm -rf "${CODEX_HOME:-${HOME}/.codex}/skills/seo-image-gen"
     rm -f "${CODEX_HOME:-${HOME}/.codex}/agents/seo-image-gen.toml"
 
-    # Ask before removing MCP server (user may use standalone banana skill)
-    MCP_CONFIG_FILE="${CODEX_HOME:-${HOME}/.codex}/config.toml"
     if [ -f "${MCP_CONFIG_FILE}" ]; then
-        # Check if standalone banana skill still exists
         if [ -d "${CODEX_HOME:-${HOME}/.codex}/skills/banana" ]; then
-            echo "  ℹ  Standalone banana skill detected at ~/.codex/skills/banana/"
-            echo "  ℹ  Keeping nanobanana-mcp in ~/.codex/config.toml (used by standalone skill)"
+            echo "  i  Standalone banana skill detected at ~/.codex/skills/banana/"
+            echo "  i  Keeping nanobanana-mcp in ~/.codex/config.toml (used by standalone skill)"
         else
-            # No standalone skill, safe to remove MCP
-            python3 - "${MCP_CONFIG_FILE}" <<'PY' 2>/dev/null || echo "  ⚠  Could not auto-remove MCP config. Remove 'nanobanana-mcp' from ~/.codex/config.toml manually."
-import json, os, sys
-settings_path = sys.argv[1]
-with open(settings_path, 'r') as f:
-    settings = json.load(f)
-if 'mcpServers' in settings and 'nanobanana-mcp' in settings['mcpServers']:
-    del settings['mcpServers']['nanobanana-mcp']
-    if not settings['mcpServers']:
-        del settings['mcpServers']
-    with open(settings_path, 'w') as f:
-        json.dump(settings, f, indent=2)
-    print('  ✓ Removed nanobanana-mcp from ~/.codex/config.toml')
-else:
-    print('  ✓ No nanobanana-mcp entry in ~/.codex/config.toml')
-PY
+            if [ ! -f "${CONFIG_HELPER}" ]; then
+                echo "x Missing ${CONFIG_HELPER}. nanobanana-mcp was not removed."
+                exit 1
+            fi
+            python3 "${CONFIG_HELPER}" remove-mcp --path "${MCP_CONFIG_FILE}" --server nanobanana-mcp
         fi
     fi
 

@@ -111,59 +111,29 @@ main() {
     # Merge MCP config into ~/.codex/config.toml
     echo "→ Configuring MCP server..."
     FIELD_CONFIG_PATH="${SEO_SKILL_DIR}/dataforseo-field-config.json"
+    CONFIG_HELPER="$(cd "${SOURCE_DIR}/../.." && pwd)/scripts/codex_config.py"
+    if [ ! -f "${CONFIG_HELPER}" ]; then
+        echo "x Missing ${CONFIG_HELPER}"
+        exit 1
+    fi
 
-    # Credentials travel in the environment (never argv, never interpolated into the source string)
-    # and the settings file is written atomically with 0600 permissions.
-    CODEX_SEO_USERNAME="${DFSE_USERNAME}" CODEX_SEO_SECRET="${DFSE_PASSWORD}" python3 - "${MCP_CONFIG_FILE}" "${FIELD_CONFIG_PATH}" <<'PY'
-import os, re, sys, tempfile
-path, field_config = sys.argv[1], sys.argv[2]
-username = os.environ["CODEX_SEO_USERNAME"]
-password = os.environ["CODEX_SEO_SECRET"]
-SERVER = "dataforseo"
-
-def _esc(value):
-    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("\r", "\\r").replace("\n", "\\n")
-
-def _read(target):
-    if not os.path.exists(target) or os.path.getsize(target) == 0:
-        return ""
-    text = open(target, encoding="utf-8").read()
-    try:
-        import tomllib
-        tomllib.loads(text)
-    except Exception:
-        sys.exit("x " + target + " is not valid TOML. Nothing was changed; fix it and rerun.")
-    return text
-
-def _drop(text, server):
-    pattern = re.compile('(?ms)^\\[mcp_servers\\."' + re.escape(server) + '"(?:\\.[^\\]]*)?\\]\\n.*?(?=^\\[|\\Z)')
-    return pattern.sub("", text).rstrip() + "\n"
-
-def _write(target, text):
-    directory = os.path.dirname(target) or "."
-    os.makedirs(directory, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=directory, prefix=".config.", suffix=".toml")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text if text.endswith("\n") else text + "\n")
-        os.chmod(tmp, 0o600)
-        os.replace(tmp, target)
-    except Exception:
-        if os.path.exists(tmp):
-            os.unlink(tmp)
-        raise
-
-modules = "SERP,KEYWORDS_DATA,ONPAGE,DATAFORSEO_LABS,BACKLINKS,DOMAIN_ANALYTICS,BUSINESS_DATA,CONTENT_ANALYSIS,AI_OPTIMIZATION"
-block = (
-    '[mcp_servers."dataforseo"]\ncommand = "npx"\nargs = ["-y", "dataforseo-mcp-server@2.8.10"]\n\n'
-    '[mcp_servers."dataforseo".env]\n'
-    'DATAFORSEO_USERNAME = "%s"\nDATAFORSEO_PASSWORD = "%s"\nENABLED_MODULES = "%s"\nFIELD_CONFIG_PATH = "%s"\n'
-    % (_esc(username), _esc(password), modules, _esc(field_config))
-)
-_write(path, _drop(_read(path), SERVER) + block)
-print("Configured MCP server dataforseo in Codex config.toml")
-PY
-    if [ $? -ne 0 ]; then
+    # Credentials stay in the environment. The helper replaces quoted or bare
+    # dataforseo tables and validates the full document before saving.
+    if ! CODEX_SEO_USERNAME="${DFSE_USERNAME}" \
+        CODEX_SEO_SECRET="${DFSE_PASSWORD}" \
+        CODEX_SEO_FIELD_CONFIG="${FIELD_CONFIG_PATH}" \
+        CODEX_SEO_ENABLED_MODULES="SERP,KEYWORDS_DATA,ONPAGE,DATAFORSEO_LABS,BACKLINKS,DOMAIN_ANALYTICS,BUSINESS_DATA,CONTENT_ANALYSIS,AI_OPTIMIZATION" \
+        python3 "${CONFIG_HELPER}" upsert-mcp \
+        --path "${MCP_CONFIG_FILE}" \
+        --server dataforseo \
+        --command npx \
+        --arg=-y \
+        --arg=dataforseo-mcp-server@2.8.10 \
+        --env-from DATAFORSEO_USERNAME=CODEX_SEO_USERNAME \
+        --env-from DATAFORSEO_PASSWORD=CODEX_SEO_SECRET \
+        --env-from ENABLED_MODULES=CODEX_SEO_ENABLED_MODULES \
+        --env-from FIELD_CONFIG_PATH=CODEX_SEO_FIELD_CONFIG
+    then
         echo "  ⚠  Could not auto-configure MCP server."
         echo "  Add the dataforseo server manually to ~/.codex/config.toml"
         echo "  See: extensions/dataforseo/docs/DATAFORSEO-SETUP.md"

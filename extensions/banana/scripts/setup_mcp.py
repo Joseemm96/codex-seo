@@ -13,10 +13,9 @@ Usage:
     python3 setup_mcp.py --help             # Show usage
 """
 
+import importlib.util
 import os
-import re
 import sys
-import tempfile
 import tomllib
 from pathlib import Path
 
@@ -25,8 +24,34 @@ MCP_NAME = "nanobanana-mcp"
 MCP_PACKAGE = "@ycse/nanobanana-mcp@1.1.1"
 
 
-def _toml_escape(value: str) -> str:
-    return str(value).replace("\\", "\\\\").replace('"', '\\"')
+_EDITOR = None
+
+
+def _codex_config():
+    global _EDITOR
+    if _EDITOR is None:
+        _EDITOR = _load_codex_config()
+    return _EDITOR
+
+
+def _load_codex_config():
+    """Import the shared config editor from the repo or an installed skill tree."""
+    candidates = []
+    here = Path(__file__).resolve()
+    candidates.append(here.parents[3] / "scripts" / "codex_config.py")
+    candidates.append(here.parents[2] / "seo" / "scripts" / "codex_config.py")
+    plugin_root = os.environ.get("CODEX_PLUGIN_ROOT")
+    if plugin_root:
+        candidates.append(Path(plugin_root) / "scripts" / "codex_config.py")
+    for path in candidates:
+        if path.is_file():
+            spec = importlib.util.spec_from_file_location("codex_config", path)
+            if spec is None or spec.loader is None:
+                continue
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            return module
+    raise RuntimeError("codex_config.py was not found. Reinstall Codex SEO.")
 
 
 def load_settings() -> dict:
@@ -48,63 +73,38 @@ def load_settings() -> dict:
     return {"mcpServers": servers}
 
 
-def _render_servers(servers: dict) -> str:
-    blocks = []
-    for name, spec in servers.items():
-        if not isinstance(spec, dict):
-            raise TypeError(f"MCP server {name} must be a dict")
-        args = spec.get("args") or []
-        env = spec.get("env") or {}
-        if not isinstance(args, list) or not isinstance(env, dict):
-            raise TypeError(f"MCP server {name} has an unsupported shape")
-        arg_text = ", ".join(f'"{_toml_escape(item)}"' for item in args)
-        lines = [
-            f'[mcp_servers."{_toml_escape(name)}"]',
-            f'command = "{_toml_escape(spec.get("command") or "")}"',
-            f"args = [{arg_text}]",
-            "",
-            f'[mcp_servers."{_toml_escape(name)}".env]',
-        ]
-        for key, value in env.items():
-            if not isinstance(value, str):
-                raise TypeError(f"env {key} must be a string")
-            lines.append(f'{key} = "{_toml_escape(value)}"')
-        blocks.append("\n".join(lines).rstrip() + "\n")
-    return "\n".join(blocks)
+def _validate_server(spec: object) -> tuple[str, list[str], dict[str, str]]:
+    if not isinstance(spec, dict):
+        raise TypeError(f"MCP server {MCP_NAME} must be a dict")
+    args = spec.get("args") or []
+    env = spec.get("env") or {}
+    if not isinstance(args, list) or not isinstance(env, dict):
+        raise TypeError(f"MCP server {MCP_NAME} has an unsupported shape")
+    if not all(isinstance(item, str) for item in args):
+        raise TypeError("MCP args must be strings")
+    if not all(isinstance(key, str) and isinstance(value, str) for key, value in env.items()):
+        raise TypeError("MCP env values must be strings")
+    command = spec.get("command") or ""
+    if not isinstance(command, str):
+        raise TypeError("MCP command must be a string")
+    return command, list(args), dict(env)
 
 
 def save_settings(settings: dict) -> None:
-    """Save Codex config.toml atomically, preserving unrelated tables."""
+    """Update only the nanobanana-mcp table, preserving every other server field."""
     if not isinstance(settings, dict) or "mcpServers" not in settings:
         raise TypeError("settings must include mcpServers")
     servers = settings["mcpServers"]
     if not isinstance(servers, dict):
         raise TypeError("mcpServers must be a dict")
-    existing = SETTINGS_PATH.read_text(encoding="utf-8") if SETTINGS_PATH.exists() else ""
-    if existing.strip():
-        tomllib.loads(existing)
-    kept = re.sub(
-        r'(?ms)^\[mcp_servers(?:\.[^\]]+)?\]\n.*?(?=^\[|\Z)',
-        "",
-        existing,
-    ).rstrip()
-    rendered = _render_servers(servers)
-    text = (kept + "\n\n" + rendered).strip() + "\n"
-    SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(
-        prefix=".config.toml.", suffix=".tmp", dir=str(SETTINGS_PATH.parent)
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(text)
-        os.chmod(tmp_path, 0o600)
-        os.replace(tmp_path, SETTINGS_PATH)
-    except BaseException:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise
+    editor = _codex_config()
+    if MCP_NAME in servers:
+        command, args, env = _validate_server(servers[MCP_NAME])
+        editor.upsert_mcp_server(SETTINGS_PATH, MCP_NAME, command, args, env)
+    else:
+        editor.remove_mcp_server(SETTINGS_PATH, MCP_NAME)
+        if not SETTINGS_PATH.exists():
+            editor.atomic_write_toml(SETTINGS_PATH, "\n")
     print(f"Settings saved to {SETTINGS_PATH}")
 
 

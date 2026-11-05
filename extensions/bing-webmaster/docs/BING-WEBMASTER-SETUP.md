@@ -24,7 +24,10 @@ You'll be prompted for:
 - IndexNow keyLocation URL (must serve the key file at that URL)
 
 Both groups can be left blank if you only want one. The installer
-writes only the env vars you provide.
+writes the Bing key into `~/.config/codex-seo/backlinks-api.json` and the
+IndexNow key into `~/.config/codex-seo/indexnow.json`. `backlinks_auth.py`
+and `indexnow_submit.py` read those files. Environment variables still
+override them.
 
 ## IndexNow setup checklist
 
@@ -51,11 +54,12 @@ guarantee indexing speed.
 ./extensions/bing-webmaster/uninstall.sh
 ```
 
-PowerShell manual removal:
+PowerShell:
+
 ```powershell
-Remove-Item -Recurse -Force "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\skills\seo-bing"
-notepad "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\config.toml"
+.\extensions\bing-webmaster\uninstall.ps1
 ```
 
-In `settings.json`, remove `BING_WEBMASTER_API_KEY`, `INDEXNOW_KEY`, and
-`INDEXNOW_KEY_LOCATION` from the top-level `env` object.
+The uninstaller deletes the skill, the Bing key inside the shared backlink
+credential file, `~/.config/codex-seo/indexnow.json`, and a legacy
+`[codex_seo.bing]` table if one is still present. Other backlink keys stay.

@@ -50,5 +50,9 @@ def test_cross_skill_paths_resolve_outside_the_repo_checkout():
             if bare.search(line):
                 offenders.append(f"{path.relative_to(ROOT)}:{line_no}")
     assert not offenders, "prefix with ${CODEX_PLUGIN_ROOT}/: " + ", ".join(offenders)
-    assert "${CODEX_PLUGIN_ROOT}/skills/#" in (ROOT / "install.sh").read_text(encoding="utf-8")
-    assert "'${CODEX_PLUGIN_ROOT}/skills/'" in (ROOT / "install.ps1").read_text(encoding="utf-8")
+    unix = (ROOT / "install.sh").read_text(encoding="utf-8")
+    windows = (ROOT / "install.ps1").read_text(encoding="utf-8")
+    assert "${CODEX_PLUGIN_ROOT}/skills/#" in unix
+    assert "rewrite_manual_paths.py" in windows
+    assert windows.index("Installing agent profiles") < windows.index("rewrite_manual_paths.py")
+    assert "--python-exe" in windows and "--runtime" in windows

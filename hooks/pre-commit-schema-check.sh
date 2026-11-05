@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Codex pre-commit equivalent of the Claude Code schema hook.
-# Install with: ln -sf ../../hooks/pre-commit-schema-check.sh .git/hooks/pre-commit
-# or call this script from your own pre-commit runner.
+# Git pre-commit schema and SEO checks.
+# Install from a clone with: bash hooks/install-git-hook.sh
+# Codex plugin manifests do not run this file automatically.
 
 ROOT="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
 VALIDATOR="${ROOT}/hooks/validate-schema.py"

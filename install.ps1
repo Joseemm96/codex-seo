@@ -41,7 +41,14 @@ function Test-PythonCandidate {
         return $null
     }
 
-    return @{ Exe = $Exe; Args = $Args }
+    $executable = ""
+    if ($probe.Output.Count -ge 1) {
+        $executable = "$($probe.Output[0])".Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($executable)) {
+        $executable = $Exe
+    }
+    return @{ Exe = $Exe; Args = $Args; Executable = $executable }
 }
 
 function Resolve-Python {
@@ -228,7 +235,7 @@ $skillsRoot = Join-Path $codexRoot "skills"
 $agentDir = Join-Path $codexRoot "agents"
 $skillDir = Join-Path $skillsRoot "seo"
 $repoUrl = if ($env:CODEX_SEO_REPO) { $env:CODEX_SEO_REPO } else { "https://github.com/Joseemm96/codex-seo" }
-$repoRef = if ($env:CODEX_SEO_REF) { $env:CODEX_SEO_REF } else { "v2.5.0-codex.1" }
+$repoRef = if ($env:CODEX_SEO_REF) { $env:CODEX_SEO_REF } else { "main" }
 $skipPlaywrightBrowser = Test-Truthy $env:CODEX_SEO_SKIP_PLAYWRIGHT_BROWSER
 $playwrightWithDeps = Test-Truthy $env:CODEX_SEO_PLAYWRIGHT_WITH_DEPS
 $suiteSkillDirs = @(
@@ -329,20 +336,37 @@ try {
         Copy-Item -Recurse -Force "$DataPath\*" $SkillData
     }
 
-    # Manual installs rewrite '${CODEX_PLUGIN_ROOT}/skills/' to the installed skills root.
-    $pluginToken = '${CODEX_PLUGIN_ROOT}/skills/'
-    Get-ChildItem -Path $skillsRoot -Recurse -Filter *.md -ErrorAction SilentlyContinue | ForEach-Object {
-        $raw = [System.IO.File]::ReadAllText($_.FullName)
-        if ($raw.Contains($pluginToken)) {
-            $updated = $raw.Replace($pluginToken, ($skillsRoot.TrimEnd('\') + '\'))
-            [System.IO.File]::WriteAllText($_.FullName, $updated)
-        }
-    }
-
     Write-Host "[INFO] Installing agent profiles..." -ForegroundColor Yellow
     $agentsSource = Join-Path $checkoutDir "agents"
     if (Test-Path $agentsSource) {
         Copy-Item -Path (Join-Path $agentsSource "*.toml") -Destination $agentDir -Force
+    }
+
+    # Manual installs have no plugin-root substitution. Rewrite skill paths and
+    # the launcher token in Markdown and agent TOML to a PowerShell command:
+    # the selected Python plus the installed runtime.py. Quoting is done in
+    # rewrite_manual_paths.py so spaces and apostrophes stay one argument.
+    $runtimePy = Join-Path $skillDir "scripts\runtime.py"
+    $rewriteScript = Join-Path $skillDir "scripts\rewrite_manual_paths.py"
+    if (-not (Test-Path $rewriteScript)) {
+        throw "Manual path rewrite script was not installed to $rewriteScript."
+    }
+    $skillsPrefix = $skillsRoot.TrimEnd('\') + '\'
+    $selectedPython = if ($python.Executable) { $python.Executable } else { $python.Exe }
+    $rewriteArgs = @()
+    $rewriteArgs += $python.Args
+    $rewriteArgs += @(
+        $rewriteScript,
+        "--skills-root", $skillsRoot,
+        "--agent-dir", $agentDir,
+        "--skills-prefix", $skillsPrefix,
+        "--python-exe", $selectedPython,
+        "--runtime", $runtimePy
+    )
+    Write-Host "[INFO] Rewriting manual install paths..." -ForegroundColor Yellow
+    $rewriteResult = Invoke-External -Exe $python.Exe -Args $rewriteArgs
+    if ($rewriteResult.ExitCode -ne 0) {
+        throw "Failed to rewrite manual install paths for Windows."
     }
 
     $bootstrapScript = Join-Path $skillDir "scripts\bootstrap_environment.py"

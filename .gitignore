@@ -32,6 +32,7 @@ build/
 # Virtual environments
 venv/
 .venv/
+runtime-state.json
 env/
 .env/
 

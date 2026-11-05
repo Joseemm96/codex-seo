@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_HELPER="$(cd "${SCRIPT_DIR}/../.." && pwd)/scripts/codex_config.py"
 SKILL_DIR="${CODEX_HOME:-${HOME}/.codex}/skills/seo-bing"
 SETTINGS_JSON="${CODEX_HOME:-${HOME}/.codex}/config.toml"
-[ -d "${SKILL_DIR}" ] && rm -rf "${SKILL_DIR}" && echo "✓ Removed ${SKILL_DIR}"
-if [ -f "${SETTINGS_JSON}" ]; then
-  python3 - "${SETTINGS_JSON}" <<'PY'
-import json, os, sys, tempfile
-path = sys.argv[1]; data = json.load(open(path))
-env = data.get("env", {})
-removed = []
-for k in ("BING_WEBMASTER_API_KEY", "INDEXNOW_KEY", "INDEXNOW_KEY_LOCATION"):
-    if k in env:
-        env.pop(k); removed.append(k)
-if removed:
-    fd, tmp = tempfile.mkstemp(dir=os.path.dirname(path), prefix=".settings.", suffix=".json")
-    with os.fdopen(fd, "w") as fh: json.dump(data, fh, indent=2)
-    os.chmod(tmp, 0o600); os.replace(tmp, path)
-    print(f"✓ Cleared {', '.join(removed)}")
-PY
+
+if [ ! -f "${CONFIG_HELPER}" ]; then
+    echo "x Missing ${CONFIG_HELPER}. Bing credentials were not removed."
+    exit 1
 fi
+
+[ -d "${SKILL_DIR}" ] && rm -rf "${SKILL_DIR}" && echo "✓ Removed ${SKILL_DIR}"
+
+python3 "${CONFIG_HELPER}" remove-bing --path "${SETTINGS_JSON}"
+echo "✓ Removed Bing and IndexNow credentials."
