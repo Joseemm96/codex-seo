@@ -1,11 +1,31 @@
 """Static installer/runtime contract checks that do not mutate a real home."""
 
+import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ({"verification": None, "error": "venv bootstrap failed"}, "venv bootstrap failed"),
+    ({"verification": None, "steps": [{"required": True, "ok": False,
+      "group": "verification", "stdout": "unparseable verifier output"}]}, "unparseable verifier output"),
+    ({"verification": {}, "runtime_state_error": "state write failed"}, "state write failed"),
+])
+def test_bootstrap_diagnostics_show_the_original_error(payload, expected):
+    source = (ROOT / "install.sh").read_text(encoding="utf-8")
+    function = source.split("print_bootstrap_diagnostics() {", 1)[1].split("\n}", 1)[0]
+    command = 'print_bootstrap_diagnostics() {' + function + '\n}\nPYTHON_BIN="$1"\nprint_bootstrap_diagnostics "$2"'
+    result = subprocess.run(["bash", "-c", command, "diagnostics-test", sys.executable,
+                             json.dumps(payload)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert expected in result.stdout
+    assert "Traceback" not in result.stderr
 
 
 def test_unix_installer_delegates_to_runtime_without_global_pip() -> None:
