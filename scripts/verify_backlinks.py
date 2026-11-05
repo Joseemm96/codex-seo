@@ -16,7 +16,6 @@ import argparse
 import json
 import sys
 import time
-from typing import Optional
 from urllib.parse import urlparse
 
 try:
@@ -26,12 +25,14 @@ except ImportError:
     sys.exit(1)
 
 import os
+
 _SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, _SCRIPTS_DIR)
 try:
     from fetch_page import fetch_page
+    from google_auth import validate_url
     from parse_html import parse_html
-    from seo_pipeline_utils import build_session, validate_public_url
+    from url_safety import URLSafetyError, safe_requests_head
 except ImportError as e:
     print(f"Error: Required scripts not found in scripts/: {e}", file=sys.stderr)
     sys.exit(1)
@@ -59,13 +60,11 @@ def _head_check(url: str, timeout: int = 15) -> dict:
         Dict with status_code, exists (bool), redirect_url (if redirected).
     """
     try:
-        url = validate_public_url(url)
-        session = build_session()
-        resp = session.head(
+        resp = safe_requests_head(
             url,
             timeout=timeout,
             allow_redirects=True,
-            headers={"User-Agent": "CodexSEO/1.8.0 BacklinkVerifier"},
+            headers={"User-Agent": "ClaudeSEO/1.8.0 BacklinkVerifier"},
         )
         return {
             "status_code": resp.status_code,
@@ -73,9 +72,16 @@ def _head_check(url: str, timeout: int = 15) -> dict:
             "redirect_url": str(resp.url) if str(resp.url) != url else None,
             "error": None,
         }
+    except URLSafetyError as e:
+        return {
+            "status_code": None,
+            "exists": False,
+            "redirect_url": None,
+            "error": f"blocked by SSRF protection: {e}",
+        }
     except requests.exceptions.Timeout:
         return {"status_code": None, "exists": False, "redirect_url": None, "error": "timeout"}
-    except (requests.exceptions.RequestException, ValueError) as e:
+    except requests.exceptions.RequestException as e:
         return {"status_code": None, "exists": False, "redirect_url": None, "error": str(e)}
 
 
@@ -113,12 +119,9 @@ def verify_single_backlink(source_url: str, target_url: str,
     }
 
     # SSRF protection
-    try:
-        source_url = validate_public_url(source_url)
-        target_url = validate_public_url(target_url)
-    except ValueError as exc:
+    if not validate_url(source_url):
         result["status"] = "error"
-        result["error"] = f"URL blocked by SSRF protection: {exc}"
+        result["error"] = "Source URL blocked by SSRF protection"
         return result
 
     source_domain = urlparse(source_url).netloc
@@ -205,7 +208,7 @@ def verify_single_backlink(source_url: str, target_url: str,
         result["status"] = "verified"
         return result
 
-    # Target not found — check if page is JS-rendered (false negative risk)
+    # Target not found: check if page is JS-rendered (false negative risk)
     content = page_data.get("content", "")
     js_indicators = [
         '<div id="root"', '<div id="app"', '<div id="__next"',
@@ -316,9 +319,7 @@ def main():
     args = parser.parse_args()
 
     # Validate target URL
-    try:
-        args.target = validate_public_url(args.target)
-    except ValueError:
+    if not validate_url(args.target):
         result = {
             "status": "error",
             "data": None,

@@ -4,9 +4,9 @@ Full-site crawling, scraping, and site mapping powered by [Firecrawl](https://ww
 
 ## Prerequisites
 
-- [Codex SEO](https://github.com/AgriciDaniel/codex-seo) installed
+- [Codex SEO](https://github.com/AgriciDaniel/claude-seo) installed
 - Node.js 20+
-- Firecrawl API key ([sign up](https://www.firecrawl.dev/app/sign-up) -- free tier: 500 credits/month)
+- Firecrawl API key ([sign up](https://www.firecrawl.dev/signup) -- free tier: 500 credits/month)
 
 ## Installation
 
@@ -56,7 +56,7 @@ When installed, other Codex SEO skills automatically leverage Firecrawl:
 ## Troubleshooting
 
 **MCP not connecting?**
-- Check sanitized workflow status: `python scripts/run_skill_workflow.py --skill seo-firecrawl --json https://example.com`
+- Check: `cat ~/.codex/config.toml | python3 -m json.tool | grep firecrawl`
 - Manual config: See [FIRECRAWL-SETUP.md](docs/FIRECRAWL-SETUP.md)
 
 **Credits exhausted?**
@@ -79,4 +79,4 @@ When installed, other Codex SEO skills automatically leverage Firecrawl:
 
 - [Firecrawl Documentation](https://docs.firecrawl.dev/)
 - [Firecrawl MCP Server](https://www.npmjs.com/package/firecrawl-mcp)
-- [Codex SEO](https://github.com/AgriciDaniel/codex-seo)
+- [Codex SEO](https://github.com/AgriciDaniel/claude-seo)

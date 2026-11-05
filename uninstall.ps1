@@ -8,11 +8,13 @@ $agentDir = Join-Path $codexRoot "agents"
 
 $skillNames = @(
     "seo",
+    "seo-agentic",
     "seo-audit",
     "seo-backlinks",
     "seo-cluster",
     "seo-competitor-pages",
     "seo-content",
+    "seo-content-brief",
     "seo-dataforseo",
     "seo-drift",
     "seo-ecommerce",
@@ -37,6 +39,7 @@ $skillNames = @(
 )
 
 $agentNames = @(
+    "seo-agentic",
     "seo-backlinks",
     "seo-cluster",
     "seo-competitor-pages",
@@ -64,6 +67,17 @@ $agentNames = @(
 )
 
 Write-Host "[INFO] Uninstalling Codex SEO..." -ForegroundColor Yellow
+
+$removedSkills = 0
+$removedAgents = 0
+foreach ($subSkill in @(Get-ChildItem -Path $skillsRoot -Directory -Filter "seo*" -ErrorAction SilentlyContinue)) {
+    Remove-Item -Path $subSkill.FullName -Recurse -Force
+    $removedSkills++
+}
+foreach ($agentFile in @(Get-ChildItem -Path $agentDir -Filter "seo-*" -ErrorAction SilentlyContinue)) {
+    Remove-Item -Path $agentFile.FullName -Force
+    $removedAgents++
+}
 
 foreach ($skill in $skillNames) {
     $path = Join-Path $skillsRoot $skill

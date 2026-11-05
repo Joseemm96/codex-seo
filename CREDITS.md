@@ -4,7 +4,7 @@ Codex SEO exists because of the work that came before it.
 
 ## Core Credits
 
-- [AgriciDaniel](https://github.com/AgriciDaniel) - original `claude-seo` project, Codex SEO repository owner, and upstream SEO skill suite.
+- [AgriciDaniel](https://github.com/AgriciDaniel) - original `codex-seo` project, Codex SEO repository owner, and upstream SEO skill suite.
 - [avalonreset](https://github.com/avalonreset) - made the Codex conversion possible and created the initial Codex SEO version that this repository builds on.
 
 ## Upstream Lineage

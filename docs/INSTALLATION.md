@@ -1,71 +1,176 @@
-# Installation
+# Installation Guide
 
-## One-Line Install
+## Prerequisites
 
-### Unix
+- **Python 3.11 to 3.14** with pip. Python 3.10 reached end of life in October 2026, and 3.15 waits on the Google Ads client library
+- **Git** for cloning the repository
+- **Claude Code CLI** installed and configured
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/AgriciDaniel/codex-seo/v1.9.6-codex.5/install.sh | bash
+Optional:
+- **Playwright Chromium** - install.sh attempts this automatically; failure is non-fatal; needed only for SPA rendering and screenshots
+
+## Quick Install
+
+### Plugin Install (Claude Code 1.0.33+)
+
+The recommended path. Inside Claude Code:
+
+```
+/plugin marketplace add AgriciDaniel/claude-seo
+/plugin install codex-seo@agricidaniel-codex-seo
+/seo setup
 ```
 
-### Windows
+Plugin installation does not run package managers. `/seo setup` is an explicit,
+one-time provisioning step that writes the virtual environment and browser only
+to Claude's persistent plugin data. Use `/seo doctor` for a read-only check.
+
+### Manual Install (Unix, macOS, Linux)
+
+```bash
+git clone --depth 1 https://github.com/AgriciDaniel/claude-seo.git
+bash codex-seo/install.sh
+```
+
+Review-then-run alternative:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgriciDaniel/claude-seo/main/install.sh > install.sh
+cat install.sh        # review
+bash install.sh       # run when satisfied
+rm install.sh
+```
+
+### Manual Install (Windows, PowerShell)
 
 ```powershell
-irm https://raw.githubusercontent.com/AgriciDaniel/codex-seo/v1.9.6-codex.5/install.ps1 | iex
+git clone --depth 1 https://github.com/AgriciDaniel/claude-seo.git
+powershell -ExecutionPolicy Bypass -File codex-seo\install.ps1
 ```
 
-## Manual Install From Local Checkout
+The Windows path uses `git clone` rather than `irm | iex` because Claude Code's own security guardrails flag piped remote-script execution. Inspect `install.ps1` before running.
+
+## Manual Installation
+
+1. **Clone the repository**
 
 ```bash
-git clone https://github.com/AgriciDaniel/codex-seo.git
+git clone https://github.com/AgriciDaniel/claude-seo.git
 cd codex-seo
-bash install.sh
 ```
 
-Windows:
-
-```powershell
-git clone https://github.com/AgriciDaniel/codex-seo.git
-cd codex-seo
-powershell -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-## What Gets Installed
-
-- `~/.codex/skills/seo`
-- `~/.codex/skills/seo-*`
-- `~/.codex/agents/seo-*.toml`
-- Python runtime at `~/.codex/skills/seo/.venv`
-- Core Python dependencies, with optional visual/report/Google/OCR groups attempted best-effort
-
-## Overrides
-
-- `CODEX_HOME`: alternate Codex home
-- `CODEX_SEO_REPO`: fork or local Git path
-- `CODEX_SEO_REF`: branch, tag, or commit; defaults to `v1.9.6-codex.5`
-- `CODEX_SEO_SKIP_PLAYWRIGHT_BROWSER=1`: skip Chromium install
-- `CODEX_SEO_PLAYWRIGHT_WITH_DEPS=1`: install Playwright system deps where supported
-
-## Verify
+2. **Run the installer**
 
 ```bash
-~/.codex/skills/seo/.venv/bin/python ~/.codex/skills/seo/scripts/verify_environment.py
+./install.sh
 ```
 
-Windows:
+3. **Verify the managed runtime**
 
-```powershell
-& "$HOME\.codex\skills\seo\.venv\Scripts\python.exe" "$HOME\.codex\skills\seo\scripts\verify_environment.py"
-```
-
-## Uninstall
+The installer delegates dependency and Chromium provisioning to the same runtime
+used by every skill. It creates `~/.codex/skills/seo/.venv/` and never falls
+back to global or user package installation.
 
 ```bash
-bash uninstall.sh
+~/.codex/skills/seo/scripts/codex-seo doctor
 ```
 
-Windows:
+If core setup failed, rerun the inspected installer. If only Chromium failed,
+the installer reports a degraded result and raw-fetch analysis remains available.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\uninstall.ps1
+## Installation Paths
+
+The installer copies files to:
+
+| Component | Path |
+|-----------|------|
+| Main skill | `~/.codex/skills/seo/` |
+| Sub-skills | `~/.codex/skills/seo-*/` |
+| Subagents | `~/.codex/agents/seo-*.md` |
+| Runtime launcher | `~/.codex/skills/seo/scripts/codex-seo` |
+| Isolated Python | `~/.codex/skills/seo/.venv/` |
+
+## Verify Installation
+
+1. Start Claude Code:
+
+```bash
+claude
+```
+
+2. Check that the skill is loaded:
+
+```
+/seo
+```
+
+You should see a help message or prompt for a URL.
+
+## Uninstallation
+
+If installed as a plugin:
+
+```
+/plugin uninstall codex-seo@agricidaniel-codex-seo
+/plugin marketplace remove AgriciDaniel/claude-seo
+```
+
+If installed manually, run the uninstaller from a fresh clone:
+
+```bash
+git clone --depth 1 https://github.com/AgriciDaniel/claude-seo.git
+bash codex-seo/uninstall.sh
+```
+
+`uninstall.sh` removes all installed sub-skills, sub-agents, and the plugin's MCP entries from `~/.codex/config.toml`. Do not maintain a hand-coded `rm` list. The shipped uninstaller is the canonical source.
+
+## Upgrading
+
+To upgrade to the latest version:
+
+Caution: Prefer downloading, inspecting, then running remote scripts; the pipe-to-shell form below is the less-safe convenience option.
+
+```bash
+# Uninstall current version
+curl -fsSL https://raw.githubusercontent.com/AgriciDaniel/claude-seo/main/uninstall.sh | bash
+
+# Install new version
+curl -fsSL https://raw.githubusercontent.com/AgriciDaniel/claude-seo/main/install.sh | bash
+```
+
+## Troubleshooting
+
+### "Skill not found" error
+
+Ensure the skill is installed in the correct location:
+
+```bash
+ls ~/.codex/skills/seo/SKILL.md
+```
+
+If the file doesn't exist, re-run the installer.
+
+### Python dependency errors
+
+Run the managed setup again:
+
+```bash
+~/.codex/skills/seo/scripts/codex-seo setup
+```
+
+### Playwright screenshot errors
+
+Run the managed setup again and inspect the result:
+
+```bash
+~/.codex/skills/seo/scripts/codex-seo setup
+~/.codex/skills/seo/scripts/codex-seo doctor
+```
+
+### Permission errors on Unix
+
+Make sure scripts are executable:
+
+```bash
+chmod +x ~/.codex/skills/seo/scripts/*.py
 ```

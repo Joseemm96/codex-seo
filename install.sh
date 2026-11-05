@@ -76,8 +76,8 @@ main() {
     SKILLS_ROOT="${CODEX_ROOT}/skills"
     AGENT_DIR="${CODEX_ROOT}/agents"
     SKILL_DIR="${SKILLS_ROOT}/seo"
-    REPO_URL="${CODEX_SEO_REPO:-https://github.com/AgriciDaniel/codex-seo}"
-    REPO_REF="${CODEX_SEO_REF:-v1.9.6-codex.5}"
+    REPO_URL="${CODEX_SEO_REPO:-https://github.com/Joseemm96/codex-seo}"
+    REPO_REF="${CODEX_SEO_REF:-v2.5.0-codex.1}"
     PYTHON_BIN="$(resolve_python)" || { echo "[ERROR] Python 3 is required but not installed."; exit 1; }
     SUITE_SKILL_DIRS=(
         seo
@@ -85,12 +85,13 @@ main() {
         seo-backlinks
         seo-cluster
         seo-competitor-pages
+        seo-agentic
         seo-content
+        seo-content-brief
         seo-dataforseo
         seo-drift
         seo-ecommerce
         seo-flow
-        seo-firecrawl
         seo-geo
         seo-google
         seo-hreflang
@@ -118,9 +119,9 @@ main() {
     command -v git >/dev/null 2>&1 || { echo "[ERROR] Git is required but not installed."; exit 1; }
 
     PYTHON_VERSION="$("${PYTHON_BIN}" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
-    PYTHON_OK="$("${PYTHON_BIN}" -c 'import sys; print(1 if sys.version_info >= (3, 10) else 0)')"
+    PYTHON_OK="$("${PYTHON_BIN}" -c 'import sys; print(1 if (3, 11) <= sys.version_info[:2] <= (3, 14) else 0)')"
     if [ "${PYTHON_OK}" = "0" ]; then
-        echo "[ERROR] Python 3.10+ is required but ${PYTHON_VERSION} was found."
+        echo "[ERROR] Python 3.11 to 3.14 is required but ${PYTHON_VERSION} was found."
         exit 1
     fi
     echo "[OK] Python ${PYTHON_VERSION} detected"
@@ -155,7 +156,7 @@ main() {
         done
     fi
 
-    for dir_name in scripts schema pdf hooks extensions; do
+    for dir_name in scripts schema pdf hooks extensions data; do
         if [ -d "${TEMP_DIR}/codex-seo/${dir_name}" ]; then
             mkdir -p "${SKILL_DIR}/${dir_name}"
             cp -r "${TEMP_DIR}/codex-seo/${dir_name}/." "${SKILL_DIR}/${dir_name}/"
@@ -176,6 +177,39 @@ main() {
     echo "[INFO] Installing agent profiles..."
     if [ -d "${TEMP_DIR}/codex-seo/agents" ]; then
         cp "${TEMP_DIR}/codex-seo/agents/"*.toml "${AGENT_DIR}/"
+    fi
+
+    if [ -d "${TEMP_DIR}/codex-seo/data" ]; then
+        mkdir -p "${SKILL_DIR}/data"
+        cp -r "${TEMP_DIR}/codex-seo/data/"* "${SKILL_DIR}/data/"
+    fi
+    if [ -f "${SKILL_DIR}/scripts/codex-seo" ]; then
+        cp "${TEMP_DIR}/codex-seo/scripts/codex-seo" "${SKILL_DIR}/scripts/codex-seo"
+        chmod +x "${SKILL_DIR}/scripts/codex-seo"
+    fi
+
+    # Manual installs have no CODEX_PLUGIN_ROOT, so rewrite the canonical launcher
+    # token to the absolute installed path. The substitution is idempotent.
+    skills_root_esc=$(printf '%s' "${SKILLS_ROOT}/" | sed 's/[#&\\]/\\&/g')
+    rewrite_doc() {
+        local doc="$1" temp_doc
+        temp_doc="${doc}.codex-seo-tmp"
+        sed -e "s#\${CODEX_PLUGIN_ROOT}/skills/#${skills_root_esc}#g" \
+            -e 's#"${CODEX_PLUGIN_ROOT}/scripts/codex-seo" run#"'"${SKILL_DIR}"'/scripts/codex-seo" run#g' \
+            -e 's#"${CODEX_PLUGIN_ROOT}/scripts/codex-seo" setup#"'"${SKILL_DIR}"'/scripts/codex-seo" setup#g' \
+            -e 's#"${CODEX_PLUGIN_ROOT}/scripts/codex-seo" doctor#"'"${SKILL_DIR}"'/scripts/codex-seo" doctor#g' \
+            "${doc}" > "${temp_doc}"
+        mv "${temp_doc}" "${doc}"
+    }
+    if [ -d "${SKILLS_ROOT}" ]; then
+        while IFS= read -r -d '' doc; do
+            rewrite_doc "${doc}"
+        done < <(find "${SKILLS_ROOT}" -type f -name '*.md' -print0)
+    fi
+    if [ -d "${AGENT_DIR}" ]; then
+        while IFS= read -r -d '' doc; do
+            rewrite_doc "${doc}"
+        done < <(find "${AGENT_DIR}" -type f -name 'seo-*.toml' -print0)
     fi
 
     BOOTSTRAP_SCRIPT="${SKILL_DIR}/scripts/bootstrap_environment.py"

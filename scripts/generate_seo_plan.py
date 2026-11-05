@@ -204,7 +204,7 @@ def write_markdown_files(plan: dict[str, Any], output_dir: Path) -> None:
     priority_tracks = "\n".join(f"- {item}" for item in plan["priority_tracks"])
     competitors = "\n".join(f"- `{domain}`" for domain in plan["competitors"])
     calendar_lines = "\n".join(
-        f"- **{item['month']}**: {item['focus']} — {item['topics']}"
+        f"- **{item['month']}**: {item['focus']}: {item['topics']}"
         for item in plan["content_calendar"]
     )
 

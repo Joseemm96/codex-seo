@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Setup script for the Banana image-generation MCP server in Codex.
+Setup script for Claude Banana MCP server in Claude Code.
 
-Configures @ycse/nanobanana-mcp in Codex's settings.json
+Configures @ycse/nanobanana-mcp in Claude Code's ~/.codex/config.toml
 with the user's Google AI API key.
 
 Usage:
@@ -13,30 +13,98 @@ Usage:
     python3 setup_mcp.py --help             # Show usage
 """
 
-import json
-import sys
 import os
+import re
+import sys
+import tempfile
+import tomllib
 from pathlib import Path
 
-SETTINGS_PATH = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "settings.json"
+SETTINGS_PATH = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
 MCP_NAME = "nanobanana-mcp"
-MCP_PACKAGE = "@ycse/nanobanana-mcp"
-DEFAULT_MODEL = "gemini-3.1-flash-image-preview"
+MCP_PACKAGE = "@ycse/nanobanana-mcp@1.1.1"
+
+
+def _toml_escape(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"')
 
 
 def load_settings() -> dict:
-    """Load Codex settings.json."""
+    """Load Codex config.toml MCP servers into the dict shape callers expect."""
     if not SETTINGS_PATH.exists():
         return {}
-    with open(SETTINGS_PATH, "r") as f:
-        return json.load(f)
+    text = SETTINGS_PATH.read_text(encoding="utf-8")
+    if not text.strip():
+        return {"mcpServers": {}}
+    data = tomllib.loads(text)
+    servers = {}
+    for name, table in (data.get("mcp_servers") or {}).items():
+        if isinstance(table, dict):
+            servers[name] = {
+                "command": table.get("command"),
+                "args": list(table.get("args") or []),
+                "env": dict(table.get("env") or {}),
+            }
+    return {"mcpServers": servers}
+
+
+def _render_servers(servers: dict) -> str:
+    blocks = []
+    for name, spec in servers.items():
+        if not isinstance(spec, dict):
+            raise TypeError(f"MCP server {name} must be a dict")
+        args = spec.get("args") or []
+        env = spec.get("env") or {}
+        if not isinstance(args, list) or not isinstance(env, dict):
+            raise TypeError(f"MCP server {name} has an unsupported shape")
+        arg_text = ", ".join(f'"{_toml_escape(item)}"' for item in args)
+        lines = [
+            f'[mcp_servers."{_toml_escape(name)}"]',
+            f'command = "{_toml_escape(spec.get("command") or "")}"',
+            f"args = [{arg_text}]",
+            "",
+            f'[mcp_servers."{_toml_escape(name)}".env]',
+        ]
+        for key, value in env.items():
+            if not isinstance(value, str):
+                raise TypeError(f"env {key} must be a string")
+            lines.append(f'{key} = "{_toml_escape(value)}"')
+        blocks.append("\n".join(lines).rstrip() + "\n")
+    return "\n".join(blocks)
 
 
 def save_settings(settings: dict) -> None:
-    """Save Codex settings.json."""
+    """Save Codex config.toml atomically, preserving unrelated tables."""
+    if not isinstance(settings, dict) or "mcpServers" not in settings:
+        raise TypeError("settings must include mcpServers")
+    servers = settings["mcpServers"]
+    if not isinstance(servers, dict):
+        raise TypeError("mcpServers must be a dict")
+    existing = SETTINGS_PATH.read_text(encoding="utf-8") if SETTINGS_PATH.exists() else ""
+    if existing.strip():
+        tomllib.loads(existing)
+    kept = re.sub(
+        r'(?ms)^\[mcp_servers(?:\.[^\]]+)?\]\n.*?(?=^\[|\Z)',
+        "",
+        existing,
+    ).rstrip()
+    rendered = _render_servers(servers)
+    text = (kept + "\n\n" + rendered).strip() + "\n"
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_PATH, "w") as f:
-        json.dump(settings, f, indent=2)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=".config.toml.", suffix=".tmp", dir=str(SETTINGS_PATH.parent)
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, SETTINGS_PATH)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     print(f"Settings saved to {SETTINGS_PATH}")
 
 
@@ -47,11 +115,12 @@ def check_setup() -> bool:
     if MCP_NAME in servers:
         env = servers[MCP_NAME].get("env", {})
         key = env.get("GOOGLE_AI_API_KEY", "")
-        masked = key[:8] + "..." + key[-4:] if len(key) > 12 else "(not set)"
+        masked = "..." + key[-4:] if len(key) > 12 else "(not set)"
         print(f"MCP server '{MCP_NAME}' is configured.")
         print(f"  Package: {MCP_PACKAGE}")
         print(f"  API Key: {masked}")
-        print(f"  Model:   {env.get('NANOBANANA_MODEL', DEFAULT_MODEL)}")
+        model = env.get("NANOBANANA_MODEL")
+        print(f"  Model:   {model if model else 'MCP package default'}")
         return True
     print(f"MCP server '{MCP_NAME}' is NOT configured.")
     return False
@@ -65,13 +134,13 @@ def remove_mcp() -> None:
         del servers[MCP_NAME]
         settings["mcpServers"] = servers
         save_settings(settings)
-        print(f"Removed '{MCP_NAME}' from Codex settings.")
+        print(f"Removed '{MCP_NAME}' from Claude Code settings.")
     else:
         print(f"'{MCP_NAME}' not found in settings.")
 
 
 def setup_mcp(api_key: str) -> None:
-    """Configure MCP server in Codex settings."""
+    """Configure MCP server in Claude Code settings."""
     if not api_key or not api_key.strip():
         print("Error: API key cannot be empty.")
         sys.exit(1)
@@ -87,16 +156,15 @@ def setup_mcp(api_key: str) -> None:
         "args": ["-y", MCP_PACKAGE],
         "env": {
             "GOOGLE_AI_API_KEY": api_key,
-            "NANOBANANA_MODEL": DEFAULT_MODEL,
         },
     }
 
     save_settings(settings)
     print(f"\nMCP server '{MCP_NAME}' configured successfully!")
     print(f"  Package: {MCP_PACKAGE}")
-    print(f"  Model:   {DEFAULT_MODEL}")
-    print(f"\nRestart Codex for changes to take effect.")
-    print(f"Generated images will be saved to: ~/Documents/nanobanana_generated/")
+    print("  Model:   MCP package default")
+    print("\nRestart Claude Code for changes to take effect.")
+    print("Generated images will be saved to: ~/Documents/nanobanana_generated/")
 
 
 def main() -> None:
@@ -134,9 +202,9 @@ def main() -> None:
         api_key = os.environ.get("GOOGLE_AI_API_KEY")
 
     if not api_key:
-        print("Banana Image Generation - MCP Setup")
+        print("Claude Banana - MCP Setup")
         print("=" * 40)
-        print(f"\nGet your free API key at: https://aistudio.google.com/apikey")
+        print("\nGet your free API key at: https://aistudio.google.com/apikey")
         print()
         try:
             api_key = input("Enter your Google AI API key: ")

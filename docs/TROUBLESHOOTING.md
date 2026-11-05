@@ -1,48 +1,216 @@
 # Troubleshooting
 
-## Skill Not Loading
+## Common Issues
 
-Verify the canonical skill exists:
+### Skill Not Loading
 
+**Symptom:** `/seo` command not recognized
+
+**Solutions:**
+
+For plugin installs, verify and reinstall through Claude Code:
+```bash
+/plugin list
+/plugin marketplace add AgriciDaniel/claude-seo
+/plugin install codex-seo@agricidaniel-codex-seo
+```
+
+For manual installs:
+
+1. Verify installation:
 ```bash
 ls ~/.codex/skills/seo/SKILL.md
-ls ~/.codex/agents/seo-technical.toml
 ```
 
-Restart Codex after reinstalling.
-
-## Runtime Not Ready
-
+2. Check SKILL.md has proper frontmatter:
 ```bash
-~/.codex/skills/seo/.venv/bin/python ~/.codex/skills/seo/scripts/verify_environment.py
+head -5 ~/.codex/skills/seo/SKILL.md
+```
+Should start with `---` followed by YAML.
+
+3. Restart Claude Code:
+```bash
+claude
 ```
 
-If Playwright Chromium fails, core workflows can still run. Visual and PDF workflows remain limited until browser installation succeeds.
+4. Re-run installer:
 
-On Python 3.14 macOS, some optional packages can lag wheel support. The installer should still complete when `requirements-core.txt` installs and `core_ready` is true; use the verifier notes to identify any optional visual, Google API, report, or OCR capability that needs a different Python/runtime.
-
-## Credentials Missing
-
-Use Codex paths for new setup:
-
-- Google: `~/.config/codex-seo/google-api.json`
-- Backlinks: `~/.config/codex-seo/backlinks-api.json`
-- DataForSEO budgets: `~/.config/codex-seo/dataforseo-costs.json`
-
-Legacy `~/.config/claude-seo/` files are read as fallback only.
-
-## Headless Workflow Fails
-
-Run a narrow workflow first:
+Caution: Prefer downloading, inspecting, then running remote scripts; the pipe-to-shell form below is the less-safe convenience option.
 
 ```bash
-python scripts/run_skill_workflow.py --skill seo-technical https://example.com --json
+curl -fsSL https://raw.githubusercontent.com/AgriciDaniel/claude-seo/main/install.sh | bash
 ```
 
-For optional MCP/API workflows, `setup_required` is a valid result when credentials or MCP servers are absent.
+---
 
-## Reinstall
+### Python Dependency Errors
+
+**Symptom:** `ModuleNotFoundError: No module named 'requests'`
+
+**Solution:**
+
+Dependencies belong in the managed runtime. For a plugin install, run:
 
 ```bash
-CODEX_SEO_REPO=https://github.com/AgriciDaniel/codex-seo CODEX_SEO_REF=v1.9.6-codex.5 bash install.sh
+/seo doctor
+/seo setup
+```
+
+For a manual install, run:
+```bash
+~/.codex/skills/seo/scripts/codex-seo doctor
+~/.codex/skills/seo/scripts/codex-seo setup
+```
+
+Do not install individual packages, use `pip --user`, or create a PATH shim.
+
+### requirements.txt Not Found
+
+**Symptom:** `No such file: requirements.txt` after install
+
+**Solution:** For plugin installs, reinstall the plugin first:
+
+```bash
+/plugin install codex-seo@agricidaniel-codex-seo
+```
+
+For manual installs, requirements.txt is copied to the skill directory:
+
+```bash
+ls ~/.codex/skills/seo/requirements.txt
+```
+
+If missing, download it directly:
+```bash
+curl -fsSL https://raw.githubusercontent.com/AgriciDaniel/claude-seo/main/requirements.txt \
+  -o ~/.codex/skills/seo/requirements.txt
+```
+
+### Windows Python Detection Issues
+
+**Symptom:** `python is not recognized` or `pip points to wrong Python`
+
+**Solution (v1.2.0+):** The Windows installer now tries both `python` and `py -3`. If both fail:
+
+1. Install Python from [python.org](https://python.org) and check "Add to PATH"
+2. Rerun `install.ps1`. It uses `CODEX_SEO_PYTHON` when set, otherwise the first of `py -3`, `python3` and `python` that is Python 3.11 to 3.14, otherwise the newest of `py -3.14` down to `py -3.11`
+3. If `py -3` is a newer Python that Codex SEO does not support yet (such as 3.15), install 3.14 alongside it, or set `CODEX_SEO_PYTHON` to a supported `python.exe`
+4. Run `/seo doctor` after installation
+
+---
+
+### Playwright Screenshot Errors
+
+**Symptom:** `playwright._impl._errors.Error: Executable doesn't exist`
+
+**Solution:** rerun managed setup so the browser is installed through the same
+interpreter and persistent browser directory:
+```bash
+/seo setup
+/seo doctor
+```
+
+---
+
+### Permission Denied Errors
+
+**Symptom:** `Permission denied` when running scripts
+
+**Solution:**
+```bash
+chmod +x ~/.codex/skills/seo/scripts/*.py
+```
+
+---
+
+---
+
+### Subagent Not Found
+
+**Symptom:** `Agent 'seo-technical' not found`
+
+**Solution:**
+
+For plugin installs, check `/plugin list` and reinstall `codex-seo@agricidaniel-codex-seo`; subagents load from the plugin, not `~/.codex/agents/`.
+
+For manual installs:
+
+1. Verify agent files exist:
+```bash
+ls ~/.codex/agents/seo-*.md
+```
+
+2. Check agent frontmatter:
+```bash
+head -5 ~/.codex/agents/seo-technical.md
+```
+
+3. Re-install agents:
+```bash
+cp /path/to/codex-seo/agents/*.md ~/.codex/agents/
+```
+
+---
+
+### Timeout Errors
+
+**Symptom:** `Request timed out after 30 seconds`
+
+**Solutions:**
+
+1. The target site may be slow: try again
+2. Increase timeout in script calls
+3. Check your network connection
+4. Some sites block automated requests
+
+---
+
+### Schema Validation False Positives
+
+**Symptom:** Hook blocks valid schema
+
+**Check:**
+
+1. Ensure placeholders are replaced
+2. Verify @context is `https://schema.org`
+3. Check for deprecated/retired types: HowTo and SpecialAnnouncement, plus the June 2025 retirements (ClaimReview, VehicleListing, EstimatedSalary, LearningVideo, and the CourseInfo carousel)
+4. FAQPage rich results were retired for all sites on 2026-05-07. The hook does not block it because it remains a valid Schema.org type, but no AI or ranking benefit is confirmed.
+5. Validate at [Google's Rich Results Test](https://search.google.com/test/rich-results)
+
+---
+
+### Slow Audit Performance
+
+**Symptom:** Full audit takes too long
+
+**Solutions:**
+
+1. Audit crawls up to 500 pages: large sites take time
+2. Subagents run in parallel to speed up analysis
+3. For faster checks, use `/seo page` on specific URLs
+4. Check if site has slow response times
+
+---
+
+## Getting Help
+
+1. **Check the docs:** Review [COMMANDS.md](COMMANDS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+
+2. **GitHub Issues:** Report bugs at the repository
+
+3. **Logs:** Check Claude Code's output for error details
+
+## Debug Mode
+
+To see detailed output, check Claude Code's internal logs or run scripts directly:
+
+```bash
+# Test fetch
+python3 ~/.codex/skills/seo/scripts/fetch_page.py https://example.com
+
+# Test parse
+python3 ~/.codex/skills/seo/scripts/parse_html.py page.html --json
+
+# Test screenshot
+python3 ~/.codex/skills/seo/scripts/capture_screenshot.py https://example.com
 ```

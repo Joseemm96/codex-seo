@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Validate that the Banana image-generation MCP server is properly configured.
+Validate that the Claude Banana MCP server is properly configured.
 
 Checks:
-1. Codex settings.json has the MCP entry
+1. Claude Code ~/.codex/config.toml has the MCP entry
 2. API key is present
 3. Node.js/npx is available
 4. Output directory exists or can be created
@@ -12,13 +12,14 @@ Usage:
     python3 validate_setup.py
 """
 
-import json
+import argparse
 import os
 import shutil
 import sys
+import tomllib
 from pathlib import Path
 
-SETTINGS_PATH = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "settings.json"
+SETTINGS_PATH = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex")) / "config.toml"
 MCP_NAME = "nanobanana-mcp"
 OUTPUT_DIR = Path.home() / "Documents" / "nanobanana_generated"
 
@@ -32,40 +33,49 @@ def check(label: str, passed: bool, detail: str = "") -> bool:
     return passed
 
 
-def main() -> int:
-    if "--help" in sys.argv or "-h" in sys.argv:
-        print("Usage: python3 validate_setup.py [--help]")
-        print()
-        print("Validates Codex settings, nanobanana-mcp configuration, npx availability,")
-        print("and the local output directory used by image-generation workflows.")
-        return 0
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Validate the Claude Banana MCP server setup."
+    )
+    return parser.parse_args()
 
-    print("Banana Image Generation - Setup Validation")
+
+def main() -> int:
+    parse_args()
+
+    print("Claude Banana - Setup Validation")
     print("=" * 40)
     results = []
 
     # 1. Settings file exists
     results.append(check(
-        "Codex settings.json exists",
+        "Claude Code ~/.codex/config.toml exists",
         SETTINGS_PATH.exists(),
         str(SETTINGS_PATH),
     ))
 
     if not SETTINGS_PATH.exists():
-        print("\nCannot continue without settings.json.")
+        print("\nCannot continue without ~/.codex/config.toml.")
         return 1
 
     # 2. Load and parse settings
     try:
-        with open(SETTINGS_PATH) as f:
-            settings = json.load(f)
-        results.append(check("settings.json is valid JSON", True))
-    except json.JSONDecodeError as e:
-        results.append(check("settings.json is valid JSON", False, str(e)))
+        data = tomllib.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+        results.append(check("~/.codex/config.toml is valid TOML", True))
+    except tomllib.TOMLDecodeError as e:
+        results.append(check("~/.codex/config.toml is valid TOML", False, str(e)))
         return 1
 
     # 3. MCP entry exists
-    servers = settings.get("mcpServers", {})
+    raw_servers = data.get("mcp_servers") or {}
+    servers = {}
+    for name, table in raw_servers.items():
+        if isinstance(table, dict):
+            servers[name] = {
+                "command": table.get("command"),
+                "args": list(table.get("args") or []),
+                "env": dict(table.get("env") or {}),
+            }
     has_mcp = MCP_NAME in servers
     results.append(check(f"MCP server '{MCP_NAME}' configured", has_mcp))
 
@@ -81,7 +91,7 @@ def main() -> int:
 
         # 5. Package is correct
         args = mcp.get("args", [])
-        has_pkg = any(str(arg).split("@latest", 1)[0] == "@ycse/nanobanana-mcp" for arg in args)
+        has_pkg = "@ycse/nanobanana-mcp" in args
         results.append(check(
             "Package is @ycse/nanobanana-mcp",
             has_pkg,
@@ -94,7 +104,7 @@ def main() -> int:
         results.append(check(
             "GOOGLE_AI_API_KEY is set",
             bool(key),
-            f"{key[:8]}...{key[-4:]}" if len(key) > 12 else "(empty or short)",
+            f"...{key[-4:]}" if len(key) > 12 else "(empty or short)",
         ))
 
         # 7. Model configured

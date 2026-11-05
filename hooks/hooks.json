@@ -1,14 +1,10 @@
 {
   "hooks": {
-    "PostToolUse": [
+    "pre-commit": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 \"${CODEX_PLUGIN_ROOT}/hooks/validate-schema.py\" \"$FILE_PATH\""
-          }
-        ]
+        "name": "schema-and-seo-check",
+        "command": "hooks/pre-commit-schema-check.sh",
+        "description": "Codex equivalent of the Claude Code PostToolUse schema hook. Runs validate-schema.py on staged HTML and JSON-LD files, then the SEO pre-commit checks."
       }
     ]
   }

@@ -123,7 +123,7 @@ preset format (see `references/presets.md` for schema details).
 
 Users can create their own presets:
 ```bash
-python3 ~/.codex/skills/seo-image-gen/scripts/presets.py create my-brand
+"${CODEX_PLUGIN_ROOT}/scripts/codex-seo" run --extension banana presets.py create my-brand
 ```
 
 This creates `~/.banana/presets/my-brand.json` with the full schema.

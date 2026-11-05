@@ -2,31 +2,27 @@
 
 $ErrorActionPreference = "Stop"
 
-Write-Host "→ Uninstalling DataForSEO extension..." -ForegroundColor Yellow
-
-$CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
-$SkillsRoot = Join-Path $CodexRoot "skills"
-$AgentDir = Join-Path $CodexRoot "agents"
+Write-Host "-> Uninstalling DataForSEO extension..." -ForegroundColor Yellow
 
 # Remove skill
-if (Test-Path (Join-Path $SkillsRoot "seo-dataforseo")) {
-    Remove-Item -Recurse -Force (Join-Path $SkillsRoot "seo-dataforseo")
+if (Test-Path "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\skills\seo-dataforseo") {
+    Remove-Item -Recurse -Force "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\skills\seo-dataforseo"
 }
 
 # Remove agent
-$agentFile = Join-Path $AgentDir "seo-dataforseo.toml"
+$agentFile = "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\agents\seo-dataforseo.toml"
 if (Test-Path $agentFile) {
     Remove-Item -Force $agentFile
 }
 
 # Remove field config
-$fieldConfig = Join-Path $SkillsRoot "seo\dataforseo-field-config.json"
+$fieldConfig = "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\skills\seo\dataforseo-field-config.json"
 if (Test-Path $fieldConfig) {
     Remove-Item -Force $fieldConfig
 }
 
-# Remove MCP server entry from settings.json
-$settingsFile = Join-Path $CodexRoot "settings.json"
+# Remove MCP server entry from ~/.codex/config.toml
+$settingsFile = "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\config.toml"
 if (Test-Path $settingsFile) {
     $python = Get-Command -Name python -ErrorAction SilentlyContinue
     if ($null -eq $python) {
@@ -50,13 +46,13 @@ if 'mcpServers' in settings and 'dataforseo' in settings['mcpServers']:
 "@
         $result = & $pyExe -c $pyScript 2>&1
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "  ✓ Removed dataforseo from settings.json" -ForegroundColor Green
+            Write-Host "  [OK] Removed dataforseo from ~/.codex/config.toml" -ForegroundColor Green
         } else {
-            Write-Host "  ⚠  Could not auto-remove MCP config. Remove 'dataforseo' from ~\.codex\settings.json manually." -ForegroundColor Yellow
+            Write-Host "  [!]  Could not auto-remove MCP config. Remove 'dataforseo' from ~\.codex\config.toml manually." -ForegroundColor Yellow
         }
     } else {
-        Write-Host "  ⚠  Python not found. Remove 'dataforseo' from ~\.codex\settings.json manually." -ForegroundColor Yellow
+        Write-Host "  [!]  Python not found. Remove 'dataforseo' from ~\.codex\config.toml manually." -ForegroundColor Yellow
     }
 }
 
-Write-Host "✓ DataForSEO extension uninstalled." -ForegroundColor Green
+Write-Host "[OK] DataForSEO extension uninstalled." -ForegroundColor Green
