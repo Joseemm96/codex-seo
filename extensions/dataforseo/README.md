@@ -1,10 +1,10 @@
 # DataForSEO Extension for Codex SEO
 
-Live SEO data via the [DataForSEO MCP server](https://github.com/dataforseo/mcp-server-typescript). Adds 22 commands across 9 API modules: SERP analysis, keyword research, backlinks, on-page analysis, competitor analysis, content analysis, business listings, AI visibility checking, and LLM mention tracking.
+Live SEO data via the [DataForSEO MCP server](https://github.com/dataforseo/mcp-server-typescript). Adds 23 data commands across 9 API modules: SERP analysis, keyword research, backlinks, on-page analysis, competitor analysis, content analysis, business listings, AI visibility checking, and LLM mention tracking.
 
 ## Prerequisites
 
-- [Codex SEO](https://github.com/AgriciDaniel/codex-seo) installed
+- [Codex SEO](https://github.com/AgriciDaniel/claude-seo) installed
 - Node.js 20+
 - [DataForSEO account](https://app.dataforseo.com/register) with API credentials
 
@@ -13,7 +13,7 @@ Live SEO data via the [DataForSEO MCP server](https://github.com/dataforseo/mcp-
 ### Unix/macOS/Linux
 
 ```bash
-git clone https://github.com/AgriciDaniel/codex-seo.git
+git clone https://github.com/AgriciDaniel/claude-seo.git
 cd codex-seo
 ./extensions/dataforseo/install.sh
 ```
@@ -21,7 +21,7 @@ cd codex-seo
 ### Windows
 
 ```powershell
-git clone https://github.com/AgriciDaniel/codex-seo.git
+git clone https://github.com/AgriciDaniel/claude-seo.git
 cd codex-seo
 .\extensions\dataforseo\install.ps1
 ```
@@ -29,7 +29,7 @@ cd codex-seo
 The installer will:
 1. Prompt for your DataForSEO username and password
 2. Install the skill and agent files
-3. Configure the MCP server in `~/.codex/settings.json`
+3. Configure the MCP server in `~/.codex/config.toml`
 4. Pre-download the `dataforseo-mcp-server` npm package
 
 ## Commands
@@ -39,6 +39,7 @@ The installer will:
 | Command | Description |
 |---------|-------------|
 | `/seo dataforseo serp <keyword>` | Google organic SERP results (also supports Bing/Yahoo via `se` parameter) |
+| `/seo dataforseo serp-images <keyword>` | Image elements from the organic SERP (the pinned MCP server has no Google Images tool) |
 | `/seo dataforseo serp-youtube <keyword>` | YouTube search results |
 | `/seo dataforseo youtube <video_id>` | YouTube video deep analysis (info, comments, subtitles) |
 
@@ -110,7 +111,7 @@ DataForSEO charges per API call. Credit costs vary by endpoint:
 - **Keyword** research: ~0.0005-0.002 per keyword
 - **Backlinks**: ~0.002-0.01 per request
 - **On-page** analysis: ~0.01-0.05 per page
-- **AI optimization**: ~0.01 per request
+- **AI optimization**: ~0.05 per request
 
 New accounts include a free trial balance. See [DataForSEO pricing](https://dataforseo.com/pricing) for current rates.
 
@@ -122,29 +123,29 @@ The extension includes a custom `field-config.json` that reduces API response si
 
 When installed, other Codex SEO skills automatically detect DataForSEO availability and use live data:
 
-- **`/seo audit`**:Uses real SERP, backlink, and on-page data
-- **`/seo technical`**:Uses on-page analysis for real technical data
-- **`/seo content`**:Uses keyword volume, difficulty, and intent data
-- **`/seo geo`**:Uses ChatGPT scraper and LLM mentions for GEO signals
-- **`/seo plan`**:Uses competitor and keyword data for strategy
+- **`/seo audit`**: Uses real SERP, backlink, and on-page data
+- **`/seo technical`**: Uses on-page analysis for real technical data
+- **`/seo content`**: Uses keyword volume, difficulty, and intent data
+- **`/seo geo`**: Uses ChatGPT scraper and LLM mentions for GEO signals
+- **`/seo plan`**: Uses competitor and keyword data for strategy
 
 ## Troubleshooting
 
 ### MCP server not connecting
 
-1. Check sanitized MCP config: `python scripts/run_skill_workflow.py --skill seo-dataforseo --json https://example.com`
+1. Check credentials: `cat ~/.codex/config.toml | grep DATAFORSEO`
 2. Test manually: `npx -y dataforseo-mcp-server`
 3. Re-run installer: `./extensions/dataforseo/install.sh`
 
 ### API errors
 
-- **401 Unauthorized**: Check username/password in settings.json
+- **401 Unauthorized**: Check username/password in ~/.codex/config.toml
 - **402 Payment Required**: Add credits at [app.dataforseo.com](https://app.dataforseo.com)
 - **429 Rate Limited**: Wait and retry (DataForSEO has per-second limits)
 
 ### Module not available
 
-If a specific command fails, check that the module is in `ENABLED_MODULES` in your settings.json. All 9 modules should be listed.
+If a specific command fails, check that the module is in `ENABLED_MODULES` in your ~/.codex/config.toml. All 9 modules should be listed.
 
 ## Uninstall
 
@@ -160,10 +161,10 @@ If a specific command fails, check that the module is in `ENABLED_MODULES` in yo
 .\extensions\dataforseo\uninstall.ps1
 ```
 
-This removes the skill, agent, field config, and MCP server entry from settings.json.
+This removes the skill, agent, field config, and MCP server entry from ~/.codex/config.toml.
 
 ## Links
 
 - [DataForSEO API Docs](https://docs.dataforseo.com/)
 - [DataForSEO MCP Server](https://github.com/dataforseo/mcp-server-typescript)
-- [Codex SEO](https://github.com/AgriciDaniel/codex-seo)
+- [Codex SEO](https://github.com/AgriciDaniel/claude-seo)

@@ -8,7 +8,6 @@ Requires a Google Ads Manager account with a developer token.
 Usage:
     python keyword_planner.py ideas "seo tools" --json
     python keyword_planner.py volume "seo tools,seo audit,seo checker" --json
-    python keyword_planner.py forecast "seo tools" --json
 
 Prerequisites:
     - Google Ads Manager account (can be free)
@@ -28,6 +27,16 @@ Note: Accounts without active ad spend receive bucketed volume ranges
 
 import argparse
 import json
+import os
+
+def _prefer_existing(primary: str, legacy: str) -> str:
+    """Use the Codex path unless only a legacy claude-seo file or directory exists."""
+    primary_path = os.path.expanduser(primary)
+    legacy_path = os.path.expanduser(legacy)
+    if os.path.exists(primary_path) or not os.path.exists(legacy_path):
+        return primary_path
+    return legacy_path
+
 import sys
 from typing import Optional
 
@@ -41,7 +50,6 @@ except ImportError:
 try:
     from google_auth import load_config
 except ImportError:
-    import os
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from google_auth import load_config
 
@@ -88,10 +96,7 @@ def _build_ads_client() -> Optional[object]:
             ads_config["login_customer_id"] = login_customer_id
 
         # Try to use OAuth token if available
-        token_path = os.path.expanduser("~/.config/codex-seo/oauth-token.json")
-        legacy_token_path = os.path.expanduser("~/.config/claude-seo/oauth-token.json")
-        if not os.path.exists(token_path) and os.path.exists(legacy_token_path):
-            token_path = legacy_token_path
+        token_path = _prefer_existing("~/.config/codex-seo/oauth-token.json", "~/.config/claude-seo/oauth-token.json")
         if os.path.exists(token_path):
             with open(token_path) as f:
                 token_data = json.load(f)
@@ -280,7 +285,7 @@ def main():
         print(json.dumps(result, indent=2, default=str))
     else:
         if args.command == "ideas":
-            print(f"=== Keyword Ideas ===")
+            print("=== Keyword Ideas ===")
             for i, idea in enumerate(result.get("ideas", [])[:20], 1):
                 vol = idea.get("avg_monthly_searches", "?")
                 comp = idea.get("competition", "?")
@@ -289,7 +294,7 @@ def main():
                 bid_str = f"${bid_low:.2f}-${bid_high:.2f}" if bid_low and bid_high else "N/A"
                 print(f"  {i:2d}. {idea['keyword']:40s} | Vol: {vol:>8} | Comp: {comp:8s} | CPC: {bid_str}")
         elif args.command == "volume":
-            print(f"=== Keyword Volumes ===")
+            print("=== Keyword Volumes ===")
             for kw in result.get("keywords", []):
                 vol = kw.get("avg_monthly_searches", "?")
                 comp = kw.get("competition", "?")

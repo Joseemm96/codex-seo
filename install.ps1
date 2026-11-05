@@ -9,15 +9,61 @@ Write-Host "  Codex Skill Suite" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
-function Resolve-Python {
-    $pythonCmd = Get-Command -Name python -ErrorAction SilentlyContinue
-    if ($null -ne $pythonCmd) {
-        return @{ Exe = "python"; Args = @() }
+# Supported range. scripts/runtime.py (MIN_PYTHON, MAX_PYTHON) is the source
+# of truth; tests/test_python_range.py keeps this copy in step.
+$MinMinor = 11
+$MaxMinor = 14
+$script:SeenPython = @()
+
+function Test-PythonCandidate {
+    param(
+        [Parameter(Mandatory = $true)][string]$Exe,
+        [string[]]$Args = @()
+    )
+
+    $pythonCmd = Get-Command -Name $Exe -ErrorAction SilentlyContinue
+    if ($null -eq $pythonCmd) {
+        return $null
     }
 
-    $pyCmd = Get-Command -Name py -ErrorAction SilentlyContinue
-    if ($null -ne $pyCmd) {
-        return @{ Exe = "py"; Args = @("-3") }
+    $probeCode = "import sys; print(sys.executable); print(sys.version.split()[0]); raise SystemExit(0 if (3, $MinMinor) <= sys.version_info[:2] <= (3, $MaxMinor) else 1)"
+    $probe = Invoke-External -Exe $Exe -Args @($Args + @('-c', $probeCode)) -Quiet
+    $probeText = ($probe.Output -join "`n")
+
+    if ($probeText -match 'Microsoft Store|WindowsApps|App execution alias|was not found') {
+        return $null
+    }
+
+    if ($probe.ExitCode -ne 0) {
+        if ($probe.ExitCode -eq 1 -and $probe.Output.Count -ge 2 -and "$($probe.Output[1])" -match '^\d+\.\d+') {
+            $script:SeenPython += "$($probe.Output[1]) ($(@($Exe) + $Args -join ' '))"
+        }
+        return $null
+    }
+
+    return @{ Exe = $Exe; Args = $Args }
+}
+
+function Resolve-Python {
+    if ($env:CODEX_SEO_PYTHON) {
+        return Test-PythonCandidate -Exe $env:CODEX_SEO_PYTHON -Args @()
+    }
+
+    $candidates = @(
+        @{ Exe = 'py'; Args = @('-3') },
+        @{ Exe = 'python3'; Args = @() },
+        @{ Exe = 'python'; Args = @() }
+    )
+    for ($minor = $MaxMinor; $minor -ge $MinMinor; $minor--) {
+        $candidates += @{ Exe = 'py'; Args = @("-3.$minor") }
+        $candidates += @{ Exe = "python3.$minor"; Args = @() }
+    }
+
+    foreach ($candidate in $candidates) {
+        $resolved = Test-PythonCandidate -Exe $candidate.Exe -Args $candidate.Args
+        if ($null -ne $resolved) {
+            return $resolved
+        }
     }
 
     return $null
@@ -165,8 +211,8 @@ if ($pythonVersionOutput -notmatch "Python\s+(\d+)\.(\d+)") {
 $pythonMajor = [int]$Matches[1]
 $pythonMinor = [int]$Matches[2]
 $pythonVersion = "$pythonMajor.$pythonMinor"
-if ($pythonMajor -lt 3 -or ($pythonMajor -eq 3 -and $pythonMinor -lt 10)) {
-    Write-Host "[ERROR] Python 3.10+ is required but $pythonVersion was found." -ForegroundColor Red
+if ($pythonMajor -ne 3 -or $pythonMinor -lt $MinMinor -or $pythonMinor -gt $MaxMinor) {
+    Write-Host "[ERROR] Python 3.$MinMinor to 3.$MaxMinor is required but $pythonVersion was found." -ForegroundColor Red
     exit 1
 }
 Write-Host "[OK] Python $pythonVersion detected" -ForegroundColor Green
@@ -181,8 +227,8 @@ $codexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".c
 $skillsRoot = Join-Path $codexRoot "skills"
 $agentDir = Join-Path $codexRoot "agents"
 $skillDir = Join-Path $skillsRoot "seo"
-$repoUrl = if ($env:CODEX_SEO_REPO) { $env:CODEX_SEO_REPO } else { "https://github.com/AgriciDaniel/codex-seo" }
-$repoRef = if ($env:CODEX_SEO_REF) { $env:CODEX_SEO_REF } else { "v1.9.6-codex.5" }
+$repoUrl = if ($env:CODEX_SEO_REPO) { $env:CODEX_SEO_REPO } else { "https://github.com/Joseemm96/codex-seo" }
+$repoRef = if ($env:CODEX_SEO_REF) { $env:CODEX_SEO_REF } else { "v2.5.0-codex.1" }
 $skipPlaywrightBrowser = Test-Truthy $env:CODEX_SEO_SKIP_PLAYWRIGHT_BROWSER
 $playwrightWithDeps = Test-Truthy $env:CODEX_SEO_PLAYWRIGHT_WITH_DEPS
 $suiteSkillDirs = @(
@@ -191,12 +237,13 @@ $suiteSkillDirs = @(
     "seo-backlinks",
     "seo-cluster",
     "seo-competitor-pages",
+    "seo-agentic",
     "seo-content",
+    "seo-content-brief",
     "seo-dataforseo",
     "seo-drift",
     "seo-ecommerce",
     "seo-flow",
-    "seo-firecrawl",
     "seo-geo",
     "seo-google",
     "seo-hreflang",
@@ -253,7 +300,7 @@ try {
         }
     }
 
-    foreach ($pathName in @("scripts", "schema", "pdf", "hooks", "extensions")) {
+    foreach ($pathName in @("scripts", "schema", "pdf", "hooks", "extensions", "data")) {
         $sourcePath = Join-Path $checkoutDir $pathName
         if (Test-Path $sourcePath) {
             $targetPath = Join-Path $skillDir $pathName
@@ -270,6 +317,25 @@ try {
         $sourceDoc = Join-Path $checkoutDir $doc
         if (Test-Path $sourceDoc) {
             Copy-Item -Path $sourceDoc -Destination (Join-Path $skillDir $doc) -Force
+        }
+    }
+
+    $TempDir = $checkoutDir
+    $SkillDir = $skillDir
+    $DataPath = "$TempDir\data"
+    $SkillData = "$SkillDir\data"
+    if (Test-Path $DataPath) {
+        New-Item -ItemType Directory -Force -Path $SkillData | Out-Null
+        Copy-Item -Recurse -Force "$DataPath\*" $SkillData
+    }
+
+    # Manual installs rewrite '${CODEX_PLUGIN_ROOT}/skills/' to the installed skills root.
+    $pluginToken = '${CODEX_PLUGIN_ROOT}/skills/'
+    Get-ChildItem -Path $skillsRoot -Recurse -Filter *.md -ErrorAction SilentlyContinue | ForEach-Object {
+        $raw = [System.IO.File]::ReadAllText($_.FullName)
+        if ($raw.Contains($pluginToken)) {
+            $updated = $raw.Replace($pluginToken, ($skillsRoot.TrimEnd('\') + '\'))
+            [System.IO.File]::WriteAllText($_.FullName, $updated)
         }
     }
 

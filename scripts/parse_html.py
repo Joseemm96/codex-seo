@@ -27,6 +27,66 @@ try:
 except ImportError:
     _HTML_PARSER = "html.parser"
 
+_SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, _SCRIPTS_DIR)
+from url_safety import decode_response_text, safe_requests_get  # noqa: E402, I001
+
+# Lazy-loader detection: covers native + the major JS lazy-loaders found on
+# WordPress/WooCommerce sites (Perfmatters, EWWW Image Optimizer, generic
+# `data-src` patterns). Sites optimized by these plugins strip native
+# `loading="lazy"` and replace `src` with a placeholder, so a check on `loading`
+# alone reports "not lazy-loaded" when the page is in fact heavily lazy-loaded.
+_PERFMATTERS_ATTRS = ("data-perfmatters-src", "data-perfmatters-srcset")
+_EWWW_ATTRS = ("data-ewww-src", "data-eio")
+_GENERIC_LAZY_ATTRS = ("data-src", "data-lazy-src", "data-original", "data-srcset")
+_PERFMATTERS_CLASSES = {"perfmatters-lazy", "perfmatters-lazy-loaded"}
+_EWWW_CLASSES = {"lazyload-eio", "lazyloaded-eio"}
+_GENERIC_LAZY_CLASSES = {"lazyload", "lazyloaded", "lazy", "lazy-loaded"}
+
+
+def _has_rel_token(tag, token: str) -> bool:
+    """Case-insensitively check whether a tag's ``rel`` attribute carries ``token``.
+
+    bs4 treats ``rel`` as a multi-valued attribute for ``<a>`` and ``<link>``
+    tags, splitting it on whitespace into a list. Both the attribute *name*
+    (``REL=``) and the surrounding tag name are lower-cased by the underlying
+    HTML parser, but the attribute *value* is preserved verbatim, so
+    ``rel="Alternate"`` or ``rel="CANONICAL"`` never matched an exact,
+    lower-case comparison such as ``soup.find("link", rel="canonical")``.
+    """
+    rel = tag.get("rel", [])
+    if isinstance(rel, str):
+        rel = rel.split()
+    return any(isinstance(value, str) and value.lower() == token for value in rel or [])
+
+
+def _detect_lazy_method(img) -> str:
+    """Return a coarse classification of the image's lazy-loading mechanism.
+
+    Order of detection: native -> perfmatters -> ewww -> js-generic -> none.
+    Specific JS lazy-loaders are checked before the generic bucket so reports
+    can attribute the optimization to the right plugin (which informs whether
+    a site is using a specific WP optimization stack).
+
+    Returns one of: 'native', 'perfmatters', 'ewww', 'js-generic', 'none'.
+    """
+    if img.get("loading", "").lower() == "lazy":
+        return "native"
+
+    class_list = set(img.get("class", []) or [])
+
+    if any(img.get(a) for a in _PERFMATTERS_ATTRS) or class_list & _PERFMATTERS_CLASSES:
+        return "perfmatters"
+
+    if any(img.get(a) for a in _EWWW_ATTRS) or class_list & _EWWW_CLASSES:
+        return "ewww"
+
+    if any(img.get(a) for a in _GENERIC_LAZY_ATTRS) or class_list & _GENERIC_LAZY_CLASSES:
+        return "js-generic"
+
+    return "none"
+
 
 def parse_html(html: str, base_url: Optional[str] = None) -> dict:
     """
@@ -64,7 +124,7 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
     # Title
     title_tag = soup.find("title")
     if title_tag:
-        result["title"] = title_tag.get_text(" ", strip=True)
+        result["title"] = title_tag.get_text(strip=True)
 
     # Meta tags
     for meta in soup.find_all("meta"):
@@ -86,12 +146,16 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
             result["twitter_card"][name] = content
 
     # Canonical
-    canonical = soup.find("link", rel="canonical")
+    canonical = next(
+        (link for link in soup.find_all("link") if _has_rel_token(link, "canonical")), None
+    )
     if canonical:
         result["canonical"] = canonical.get("href")
 
     # Hreflang
-    for link in soup.find_all("link", rel="alternate"):
+    for link in soup.find_all("link"):
+        if not _has_rel_token(link, "alternate"):
+            continue
         hreflang = link.get("hreflang")
         if hreflang:
             result["hreflang"].append({
@@ -102,9 +166,20 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
     # Headings
     for tag in ["h1", "h2", "h3"]:
         for heading in soup.find_all(tag):
-            text = heading.get_text(" ", strip=True)
+            text = heading.get_text(strip=True)
             if text:
                 result[tag].append(text)
+                # Flag suspiciously short or purely numeric headings (likely counters/stats)
+                stripped = text.strip()
+                is_suspicious = (
+                    len(stripped) <= 3
+                    or stripped.replace(",", "").replace(".", "").replace("+", "").replace("-", "").replace("%", "").replace(" ", "").isdigit()
+                )
+                if is_suspicious:
+                    key = f"{tag}_suspicious"
+                    if key not in result:
+                        result[key] = []
+                    result[key].append(text)
 
     # Images
     for img in soup.find_all("img"):
@@ -118,6 +193,7 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
             "width": img.get("width"),
             "height": img.get("height"),
             "loading": img.get("loading"),
+            "lazy_method": _detect_lazy_method(img),
         })
 
     # Links
@@ -134,7 +210,7 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
 
             link_data = {
                 "href": full_url,
-                "text": a.get_text(" ", strip=True)[:100],
+                "text": a.get_text(strip=True)[:100],
                 "rel": a.get("rel", []),
             }
 
@@ -147,7 +223,17 @@ def parse_html(html: str, base_url: Optional[str] = None) -> dict:
     for script in soup.find_all("script", type="application/ld+json"):
         try:
             schema_data = json.loads(script.string)
-            result["schema"].append(schema_data)
+            # Flatten @graph containers so each @type is a separate entry
+            if isinstance(schema_data, dict) and "@graph" in schema_data:
+                for item in schema_data["@graph"]:
+                    if isinstance(item, dict):
+                        result["schema"].append(item)
+            elif isinstance(schema_data, list):
+                for item in schema_data:
+                    if isinstance(item, dict):
+                        result["schema"].append(item)
+            else:
+                result["schema"].append(schema_data)
         except (json.JSONDecodeError, TypeError):
             pass
 
@@ -179,6 +265,10 @@ def main():
             html = f.read()
     else:
         html = sys.stdin.read()
+        if not html and args.url:
+            resp = safe_requests_get(args.url, timeout=30, allow_redirects=True)
+            html = decode_response_text(resp)
+            args.url = resp.url
 
     result = parse_html(html, args.url)
 

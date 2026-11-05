@@ -3,24 +3,17 @@ set -euo pipefail
 
 echo "Removing Firecrawl extension..."
 
-CODEX_ROOT="${CODEX_HOME:-${HOME}/.codex}"
-SKILLS_ROOT="${CODEX_ROOT}/skills"
-AGENT_DIR="${CODEX_ROOT}/agents"
-SETTINGS_FILE="${CODEX_ROOT}/settings.json"
-
 # Remove skill directory
-rm -rf "${SKILLS_ROOT}/seo-firecrawl"
+rm -rf "${CODEX_HOME:-${HOME}/.codex}/skills/seo-firecrawl"
 echo "v Removed skill files"
 
-rm -f "${AGENT_DIR}/seo-firecrawl.toml"
-echo "v Removed agent profile"
+# Remove MCP entry from ~/.codex/config.toml
+MCP_CONFIG_FILE="${CODEX_HOME:-${HOME}/.codex}/config.toml"
+if [ -f "${MCP_CONFIG_FILE}" ]; then
+    python3 - "${MCP_CONFIG_FILE}" <<'PY' || echo "  Warning: Could not update ~/.codex/config.toml automatically."
+import json, os, sys
 
-# Remove MCP entry from settings.json
-if [ -f "${SETTINGS_FILE}" ]; then
-    python3 -c "
-import json, os
-
-settings_path = '${SETTINGS_FILE}'
+settings_path = sys.argv[1]
 with open(settings_path, 'r') as f:
     settings = json.load(f)
 
@@ -28,10 +21,10 @@ if 'mcpServers' in settings and 'firecrawl-mcp' in settings['mcpServers']:
     del settings['mcpServers']['firecrawl-mcp']
     with open(settings_path, 'w') as f:
         json.dump(settings, f, indent=2)
-    print('v Removed MCP server from settings.json')
+    print('v Removed MCP server from ~/.codex/config.toml')
 else:
-    print('  MCP server not found in settings.json (already removed)')
-" || echo "  Warning: Could not update settings.json automatically."
+    print('  MCP server not found in ~/.codex/config.toml (already removed)')
+PY
 fi
 
 echo ""

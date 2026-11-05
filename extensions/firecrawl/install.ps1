@@ -7,17 +7,17 @@ Write-Host "  For Codex SEO" -ForegroundColor Cyan
 Write-Host "====================================" -ForegroundColor Cyan
 Write-Host ""
 
-$CodexRoot = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME ".codex" }
-$SkillsRoot = Join-Path $CodexRoot "skills"
-$SkillDir = Join-Path $SkillsRoot "seo-firecrawl"
-$AgentDir = Join-Path $CodexRoot "agents"
-$SeoSkillDir = Join-Path $SkillsRoot "seo"
-$SettingsFile = Join-Path $CodexRoot "settings.json"
+$SkillDir = "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\skills\seo-firecrawl"
+$SeoSkillDir = "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\skills\seo"
+# MCP servers live in ~/.codex/config.toml (the file `claude mcp add` writes).
+# NOT ~/.codex/config.toml - `mcpServers` is not a key Claude Code reads
+# there, so entries written to settings.json silently never load.
+$McpConfigFile = "$(if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $HOME '.codex' })\config.toml"
 
 # Check prerequisites
 if (-not (Test-Path $SeoSkillDir)) {
     Write-Host "x Codex SEO is not installed." -ForegroundColor Red
-    Write-Host "  Install it first: irm https://raw.githubusercontent.com/AgriciDaniel/codex-seo/main/install.ps1 | iex"
+    Write-Host "  Install it first: irm https://raw.githubusercontent.com/AgriciDaniel/claude-seo/main/install.ps1 | iex"
     exit 1
 }
 Write-Host "v Codex SEO detected" -ForegroundColor Green
@@ -42,7 +42,7 @@ Write-Host "Free tier: 500 credits/month"
 Write-Host ""
 
 $apiKey = Read-Host "Firecrawl API key" -AsSecureString
-$apiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+$apiKeyPlain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR(
     [Runtime.InteropServices.Marshal]::SecureStringToBSTR($apiKey))
 if ([string]::IsNullOrWhiteSpace($apiKeyPlain)) {
     Write-Host "x API key cannot be empty." -ForegroundColor Red
@@ -51,17 +51,11 @@ if ([string]::IsNullOrWhiteSpace($apiKeyPlain)) {
 
 # Determine source directory
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$RepoRootCandidate = Resolve-Path (Join-Path $ScriptDir "..\..") -ErrorAction SilentlyContinue
-$InstalledSkillCandidate = Resolve-Path (Join-Path $ScriptDir "..\..\..\seo-firecrawl\SKILL.md") -ErrorAction SilentlyContinue
-if ($RepoRootCandidate -and (Test-Path (Join-Path $RepoRootCandidate.Path "skills\seo-firecrawl\SKILL.md"))) {
-    $SkillSource = Join-Path $RepoRootCandidate.Path "skills\seo-firecrawl\SKILL.md"
-    $AgentSource = Join-Path $RepoRootCandidate.Path "agents\seo-firecrawl.toml"
-} elseif ($InstalledSkillCandidate) {
-    $SkillSource = $InstalledSkillCandidate.Path
-    $AgentSource = Join-Path $AgentDir "seo-firecrawl.toml"
-} elseif (Test-Path "$ScriptDir\skills\seo-firecrawl\SKILL.md") {
-    $SkillSource = "$ScriptDir\skills\seo-firecrawl\SKILL.md"
-    $AgentSource = "$ScriptDir\agents\seo-firecrawl.toml"
+$SourceDir = $null
+if (Test-Path "$ScriptDir\skills\seo-firecrawl\SKILL.md") {
+    $SourceDir = $ScriptDir
+} elseif (Test-Path "$ScriptDir\extensions\firecrawl\skills\seo-firecrawl\SKILL.md") {
+    $SourceDir = "$ScriptDir\extensions\firecrawl"
 } else {
     Write-Host "x Cannot find extension source files." -ForegroundColor Red
     exit 1
@@ -71,37 +65,39 @@ if ($RepoRootCandidate -and (Test-Path (Join-Path $RepoRootCandidate.Path "skill
 Write-Host ""
 Write-Host "=> Installing Firecrawl skill..." -ForegroundColor Yellow
 New-Item -ItemType Directory -Force -Path $SkillDir | Out-Null
-Copy-Item $SkillSource "$SkillDir\SKILL.md" -Force
-
-Write-Host "=> Installing Firecrawl agent..." -ForegroundColor Yellow
-New-Item -ItemType Directory -Force -Path $AgentDir | Out-Null
-$AgentTarget = Join-Path $AgentDir "seo-firecrawl.toml"
-if ($AgentSource -and (Test-Path $AgentSource) -and ((Resolve-Path $AgentSource).Path -ne $AgentTarget)) {
-    Copy-Item $AgentSource $AgentTarget -Force
-} elseif (Test-Path $AgentTarget) {
-    Write-Host "  v Codex TOML agent already installed" -ForegroundColor Green
-} else {
-    Write-Host "  Warning: Codex TOML agent not found; reinstall the core Codex SEO suite if delegation is unavailable." -ForegroundColor Yellow
-}
+Copy-Item "$SourceDir\skills\seo-firecrawl\SKILL.md" "$SkillDir\SKILL.md" -Force
 
 # Configure MCP server
 Write-Host "=> Configuring MCP server..." -ForegroundColor Yellow
-$settingsContent = if (Test-Path $SettingsFile) { Get-Content $SettingsFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
-if (-not ($settingsContent.PSObject.Properties.Name -contains "mcpServers")) {
-    $settingsContent | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force
-}
+$settingsContent = if (Test-Path $McpConfigFile) { Get-Content $McpConfigFile -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }
+if (-not $settingsContent.mcpServers) { $settingsContent | Add-Member -NotePropertyName mcpServers -NotePropertyValue ([pscustomobject]@{}) -Force }
 $settingsContent.mcpServers | Add-Member -NotePropertyName 'firecrawl-mcp' -NotePropertyValue @{
     command = 'npx'
-    args = @('-y', 'firecrawl-mcp')
+    args = @('-y', 'firecrawl-mcp@3.11.0')
     env = @{ FIRECRAWL_API_KEY = $apiKeyPlain }
 } -Force
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent $SettingsFile) | Out-Null
-$settingsContent | ConvertTo-Json -Depth 10 | Set-Content $SettingsFile -Encoding UTF8
+# Write atomically: stage to a temp file in the same directory, then swap
+# it into place, so a crash mid-write never leaves ~/.codex/config.toml truncated
+# or half-written (it is shared with Claude Code and other installers).
+# -Depth 100 (not the ConvertTo-Json default of 2, or the previous 10) so an
+# existing ~/.codex/config.toml with deeply nested config round-trips intact.
+$TempConfigFile = Join-Path (Split-Path -Parent $McpConfigFile) ".config.toml.$([guid]::NewGuid().ToString('N')).tmp"
+$jsonText = $settingsContent | ConvertTo-Json -Depth 100
+# Write without a byte-order mark: on Windows PowerShell 5.1, Set-Content -Encoding UTF8
+# emits a BOM and Node's JSON.parse rejects it, which would make ~/.codex/config.toml unreadable.
+[System.IO.File]::WriteAllText($TempConfigFile, $jsonText, (New-Object System.Text.UTF8Encoding $false))
+Move-Item -Path $TempConfigFile -Destination $McpConfigFile -Force
+# Restrict the credential-bearing settings file to the current user only.
+try {
+    icacls $McpConfigFile /inheritance:r /grant:r "${env:USERNAME}:F" | Out-Null
+} catch {
+    Write-Host "  Note: could not restrict ~/.codex/config.toml ACL; review manually." -ForegroundColor Yellow
+}
 Write-Host "  v MCP server configured" -ForegroundColor Green
 
 # Pre-warm
 Write-Host "=> Pre-downloading firecrawl-mcp..." -ForegroundColor Yellow
-npx -y firecrawl-mcp --help 2>$null | Out-Null
+npx -y firecrawl-mcp@3.11.0 --help 2>$null | Out-Null
 
 Write-Host ""
 Write-Host "v Firecrawl extension installed!" -ForegroundColor Green

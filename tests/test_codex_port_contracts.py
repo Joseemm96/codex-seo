@@ -11,16 +11,17 @@ AGENTS = ROOT / "agents"
 
 EXPECTED_SKILLS = {
     "seo",
+    "seo-agentic",
     "seo-audit",
     "seo-backlinks",
     "seo-cluster",
     "seo-competitor-pages",
     "seo-content",
+    "seo-content-brief",
     "seo-dataforseo",
     "seo-drift",
     "seo-ecommerce",
     "seo-flow",
-    "seo-firecrawl",
     "seo-geo",
     "seo-google",
     "seo-hreflang",
@@ -41,6 +42,7 @@ EXPECTED_SKILLS = {
 
 
 EXPECTED_AGENTS = {
+    "seo-agentic",
     "seo-backlinks",
     "seo-cluster",
     "seo-competitor-pages",
@@ -71,10 +73,10 @@ EXPECTED_AGENTS = {
 def test_codex_plugin_manifest_is_valid():
     manifest = json.loads((ROOT / ".codex-plugin" / "plugin.json").read_text(encoding="utf-8"))
     assert manifest["name"] == "codex-seo"
-    assert manifest["version"] == "1.9.6+codex.5"
+    assert manifest["version"] == "2.5.0+codex.1"
     assert manifest["skills"] == "./skills/"
     assert manifest["hooks"] == "./hooks/hooks.json"
-    assert manifest["repository"] == "https://github.com/AgriciDaniel/codex-seo"
+    assert manifest["repository"] == "https://github.com/Joseemm96/codex-seo"
     assert manifest["interface"]["displayName"] == "Codex SEO"
 
 
@@ -104,9 +106,10 @@ def test_shared_reference_links_exist():
     for skill_file in SKILLS.glob("seo-*/SKILL.md"):
         text = skill_file.read_text(encoding="utf-8")
         for match in re.findall(r"`([^`]+/references/[^`]+)`", text):
-            candidate = (skill_file.parent / match).resolve()
-            alt = (SKILLS / match).resolve()
-            root_relative = (ROOT / match).resolve()
+            normalized = match.replace("${CODEX_PLUGIN_ROOT}/", "")
+            candidate = (skill_file.parent / normalized).resolve()
+            alt = (SKILLS / normalized).resolve()
+            root_relative = (ROOT / normalized).resolve()
             assert candidate.exists() or alt.exists() or root_relative.exists(), f"Broken reference in {skill_file}: {match}"
 
 
@@ -153,7 +156,7 @@ def test_extension_installers_are_codex_first():
 def test_packaged_license_links_point_to_codex_repo():
     for path in list(SKILLS.glob("seo*/LICENSE.txt")) + list((ROOT / "extensions").glob("*/skills/seo*/LICENSE.txt")):
         text = path.read_text(encoding="utf-8")
-        assert "AgriciDaniel/codex-seo" in text
+        assert "Joseemm96/codex-seo" in text
         assert "AgriciDaniel/claude-seo" not in text
 
 
@@ -209,8 +212,6 @@ def test_api_readiness_matrix_covers_smoke_suite():
 def test_extension_fallback_skills_match_canonical_skills():
     mirrors = {
         "seo-dataforseo": ROOT / "extensions" / "dataforseo" / "skills" / "seo-dataforseo" / "SKILL.md",
-        "seo-firecrawl": ROOT / "extensions" / "firecrawl" / "skills" / "seo-firecrawl" / "SKILL.md",
-        "seo-image-gen": ROOT / "extensions" / "banana" / "skills" / "seo-image-gen" / "SKILL.md",
     }
     for skill, fallback in mirrors.items():
         canonical = SKILLS / skill / "SKILL.md"

@@ -1,13 +1,13 @@
 {
   "name": "codex-seo",
-  "version": "1.9.6+codex.5",
-  "description": "Comprehensive SEO analysis skill suite for Codex. Includes technical SEO, content quality, schema markup, image optimization, sitemap architecture, GEO/AEO, backlinks, local SEO, maps intelligence, semantic clustering, SXO, drift monitoring, e-commerce SEO, Google APIs, and deterministic reporting workflows.",
+  "version": "2.5.0+codex.1",
+  "description": "Comprehensive SEO analysis skill suite for Codex. 28 sub-skills (24 core + 1 orchestrator + 1 framework + 2 extension mirrors) and 25 sub-agents cover technical SEO, content quality, schema, sitemaps, Core Web Vitals, local SEO, backlinks, AI/GEO, agent readiness, ecommerce, hreflang, SXO, clustering, drift monitoring, and Google APIs. Includes optional MCP extensions, SPA-aware rendering, and hardened fetchers.",
   "author": {
     "name": "AgriciDaniel",
     "url": "https://github.com/AgriciDaniel"
   },
-  "homepage": "https://github.com/AgriciDaniel/codex-seo",
-  "repository": "https://github.com/AgriciDaniel/codex-seo",
+  "homepage": "https://github.com/Joseemm96/codex-seo",
+  "repository": "https://github.com/Joseemm96/codex-seo",
   "license": "MIT",
   "keywords": [
     "codex",
@@ -42,14 +42,14 @@
   "interface": {
     "displayName": "Codex SEO",
     "shortDescription": "Run SEO audits, schema checks, GEO analysis, and reports in Codex.",
-    "longDescription": "Codex SEO is a local SEO analysis suite with 1 orchestrator, 26 specialist workflows, 24 Codex agent profiles, shared cache artifacts, optional API integrations, and deterministic headless wrappers for repeatable audits and reports.",
+    "longDescription": "Codex SEO is a local SEO analysis suite synced from claude-seo v2.5.0, with 28 sub-skills, 25 Codex TOML agent profiles, shared cache artifacts, optional API integrations, and deterministic runners for repeatable audits and reports.",
     "developerName": "AgriciDaniel",
     "category": "Productivity",
     "capabilities": [
       "Interactive",
       "Write"
     ],
-    "websiteURL": "https://github.com/AgriciDaniel/codex-seo",
+    "websiteURL": "https://github.com/Joseemm96/codex-seo",
     "defaultPrompt": [
       "Audit this website for SEO issues.",
       "Check schema and Core Web Vitals for this URL.",
